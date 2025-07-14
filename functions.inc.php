@@ -171,7 +171,7 @@ function bosssecretary_get_config($engine){
 						$ext->add($ctx_bsc, $extension, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/'.$id_group.'/member/${CALLER})}','exit_module'));
 						$ext->add($ctx_bsc, $extension, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/'.$id_group.'/locked)}','exit_module','run_module'));
 						$ext->add($ctx_bsc, $extension, 'run_module', new ext_noop("Bosssecretary: Executing module"));
-						$ext->add($ctx_bsc, $extension, '', new ext_sipaddheader("Alert-Info", "<http://nohost>\;info=alert-group\;x-line-id=0"));
+						$ext->add($ctx_bsc, $extension, '', new ext_set("PJSIP_HEADER(add,Alert-Info)", "<http://nohost>;info=alert-group;x-line-id=0")); //ext_sipaddheader("Alert-Info", "<http://nohost>\;info=alert-group\;x-line-id=0"));
 						$extensions = array();
 						
 						// David
@@ -790,7 +790,7 @@ function bosssecretary_array_to_mysql_param_in(array $params)
 	{
 		array_push($arrParams, "'" .$db->escapeSimple($value). "'");
 	}
-	return implode($arrParams, ", ");
+	return implode(", ", $arrParams);
 }
 
 
@@ -983,29 +983,47 @@ function bosssecretary_get_form_add( array $params)
 	$vars["group_label"] = (isset($params["group_label"])) ? $params["group_label"] : '';
 	$vars["delete_button"] = "";
 	$vars["action"] = "Add";
-	$vars["message_details"] = $params["message_details"];
-	$vars["message_title"] = $params["message_title"];
+	$vars["message_details"] = $params["message_details"] ?? null;
+	$vars["message_title"] = $params["message_title"] ?? null;
 	return bosssecretary_get_form($vars);
 }
 
 
-function bosssecretary_get_form_edit( array $params)
+function bosssecretary_get_form_edit(array $params)
 {
-	$vars["form_title"] = "Edit Group";
-	$vars["form_url"] = "config.php?display=bosssecretary&bsgroupdisplay=".BOSSSECRETARY_PARAM_PREFIX. $params["group_number"];
-	$vars["bosses_extensions"] = (isset($params["bosses"])) ? implode($params["bosses"], "\n") : '';
-	$vars["secretaries_extensions"] = (isset($params["secretaries"])) ? implode($params["secretaries"], "\n") : '';
-	$vars["chiefs_extensions"]	=	(isset($params["chiefs"])) ? implode($params["chiefs"], "\n") : '';
-	$vars["group_number"] = $params["group_number"];
-	$vars["group_label"] = $params["group_label"];
-	$vars["delete_button"] = bosssecretary_get_delete_button();
-	$vars["action"] = "Edit";
-	$vars["message_details"] = $params["message_details"];
-	$vars["message_title"] = $params["message_title"];
-	$vars["delete_question"] = "Do you really to want delete " . $vars["group_number"] . " (" .$vars["group_label"] . ") group?";
-	$vars["delete_url"] = "config.php?display=bosssecretary&bsgroupdelete=".BOSSSECRETARY_PARAM_PREFIX. $params["group_number"];
-	return bosssecretary_get_form($vars);
+    $vars = [];
+
+    $vars["form_title"] = "Edit Group";
+    $vars["form_url"] = "config.php?display=bosssecretary&bsgroupdisplay=" . urlencode($params["group_number"] ?? '');
+
+    $vars["bosses_extensions"] = isset($params["bosses"]) && is_array($params["bosses"])
+        ? implode(", ", $params["bosses"])
+        : '';
+
+    $vars["secretaries_extensions"] = isset($params["secretaries"]) && is_array($params["secretaries"])
+        ? implode(", ", $params["secretaries"])
+        : '';
+
+    $vars["chiefs_extensions"] = isset($params["chiefs"]) && is_array($params["chiefs"])
+        ? implode(", ", $params["chiefs"])
+        : '';
+
+    $vars["group_number"] = $params["group_number"] ?? '';
+    $vars["group_label"] = $params["group_label"] ?? '';
+
+    $vars["delete_button"] = bosssecretary_get_delete_button();
+    $vars["action"] = "Edit";
+
+    $vars["message_details"] = $params["message_details"] ?? '';
+    $vars["message_title"] = $params["message_title"] ?? '';
+
+    $vars["delete_question"] = "Do you really want to delete " . $vars["group_label"] . "?";
+
+    $vars["delete_url"] = "config.php?display=bosssecretary&bsgroupdelete=" . urlencode($params["group_number"] ?? '');
+
+    return bosssecretary_get_form($vars);
 }
+
 
 
 function bosssecretary_get_form ( array $vars)
@@ -1027,16 +1045,12 @@ function bosssecretary_get_form ( array $vars)
 		unset($vars["message_title"]);
 	}
 
-
-	foreach ($vars as $var => $value)
-	{
-		$sForm = str_replace("{".$var. "}", $value, $sForm);
+	foreach ($vars as $var => $value) {
+    		$sForm = str_replace("{" . $var . "}", $value ?? '', $sForm);
 	}
 	return $sForm;
+
 }
-
-
-
 
 function bosssecretary_get_delete_button()
 {

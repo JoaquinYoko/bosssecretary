@@ -79,23 +79,26 @@ if(DB::IsError($results)) {
 
 foreach ($results as $column)
 {
+    if (!isset($column["Field"])) {
+        continue;
+    }
 
-	if (trim(strtolower($column["Field"])) == "dring")
-	{
-		$sql = "ALTER TABLE `bosssecretary_group` DROP `".$column["Field"]."` ";
-		$check = $db->query($sql);
-		if(DB::IsError($check)) {
-			die_freepbx("Can not alter bosssecretary_group table");
-		}
-	}
-	if (trim(strtolower($column["Field"])) == "ringtime")
-	{
-		$sql = "ALTER TABLE `bosssecretary_group` DROP `".$column["Field"]."` ";
-		$check = $db->query($sql);
-		if(DB::IsError($check)) {
-			die_freepbx("Can not alter bosssecretary_group table");
-		}
-	}
+    $fieldName = trim(strtolower($column["Field"]));
+
+    if ($fieldName == "dring") {
+        $sql = "ALTER TABLE bosssecretary_group DROP ".$column["Field"]." ";
+        $check = $db->query($sql);
+        if(DB::IsError($check)) {
+            die_freepbx("Can not alter bosssecretary_group table");
+        }
+    }
+    if ($fieldName == "ringtime") {
+        $sql = "ALTER TABLE bosssecretary_group DROP ".$column["Field"]." ";
+        $check = $db->query($sql);
+        if(DB::IsError($check)) {
+            die_freepbx("Can not alter bosssecretary_group table");
+        }
+    }
 }
 
 $sql = "ALTER TABLE bosssecretary_group MODIFY id_group INT(10) NOT NULL";
