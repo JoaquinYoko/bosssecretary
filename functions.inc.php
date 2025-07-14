@@ -188,7 +188,13 @@ function bosssecretary_get_config($engine){
 					}
 				}
 			}
+				// Redirect calls from PSTN 
+				$context = 'bosssecretary-routing';
 
+				$ext->add($context, '_.', '', new ext_noop('bosssecretary: call from PSTN, sending to ext-bosssecretary'));
+				$ext->add($context, '_.', '', new ext_goto('ext-bosssecretary,${EXTEN},1'));
+
+				$ext->add('from-pstn', '_.', '', new ext_goto('bosssecretary-routing,${EXTEN},1'));
 			break;
 	}
 
@@ -237,9 +243,49 @@ function bosssecretary_get_fcc_off()
 	return $extLock;
 }
 
-
-
 function bosssecretary_to_group($groups)
+{
+	$newGroup = array();
+
+	foreach ($groups as $group)
+	{
+		$id = $group["id_group"];
+
+		if (!isset($newGroup[$id]))
+		{
+			$newGroup[$id] = $group;
+			$newGroup[$id]["bosses"] = array();
+			$newGroup[$id]["secretaries"] = array();
+			$newGroup[$id]["chiefs"] = array(); 
+
+			if (!empty($group["boss_extension"])) {
+				$newGroup[$id]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+			}
+			if (!empty($group["secretary_extension"])) {
+				$newGroup[$id]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+			}
+			if (!empty($group["chief_extension"])) {
+				$newGroup[$id]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+		else
+		{
+			if (!empty($group["boss_extension"]) && !isset($newGroup[$id]["bosses"][$group["boss_extension"]])) {
+				$newGroup[$id]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+			}
+			if (!empty($group["secretary_extension"]) && !isset($newGroup[$id]["secretaries"][$group["secretary_extension"]])) {
+				$newGroup[$id]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+			}
+			if (!empty($group["chief_extension"]) && !isset($newGroup[$id]["chiefs"][$group["chief_extension"]])) {
+				$newGroup[$id]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+	}
+
+	return $newGroup;
+}
+
+/*function bosssecretary_to_group($groups)
 {
 	$newGroup = array();
 	foreach ($groups as $group)
@@ -280,7 +326,7 @@ function bosssecretary_to_group($groups)
 		}
 	}
 	return $newGroup;
-}
+}*/
 
 function bosssecretary_search($extensions)
 {
