@@ -1,0 +1,3717 @@
+<?php
+
+
+/********************************************************
+*														*
+* 					API FUNCTIONS						*
+*														*
+********************************************************/
+
+
+define("BOSSSECRETARY_PARAM_PREFIX", "bsgroup-");
+define("BOSSSECRETARY_LABEL_DEFAULT", "Group ");
+define("BOSSSECRETARY_CONTEXT", "ext-bosssecretary");
+define("BOSSSECRETARY_MACRO_LOCKED", "macro-bosssecretary-locked");
+define("BOSSSECRETARY_MACRO_LOCKED_NAME", "bosssecretary-locked");
+define("BOSSSECRETARY_TOGGLE", "app-bosssecretary-toggle");
+define("BOSSSECRETARY_ON", "app-bosssecretary-on");
+define("BOSSSECRETARY_OFF", "app-bosssecretary-off");
+define("BOSSSECRETARY_HINTS", "app-bosssecretary-hints");
+
+
+function bosssecretary_get_config($engine){
+	global $db;
+	global $ext;
+	global $amp_conf;
+	global $astman;
+
+	switch($engine) {
+		case "asterisk":
+
+
+
+
+			$fcc_toggle = bosssecretary_get_fcc_toggle();
+			$fcc_on  = bosssecretary_get_fcc_on();
+			$fcc_off  = bosssecretary_get_fcc_off();
+			$groups = bosssecretary_get_all_groups();
+
+			$ctx_app_toggle =   BOSSSECRETARY_TOGGLE;
+			$ctx_app_on     =   BOSSSECRETARY_ON;
+			$ctx_app_off    =   BOSSSECRETARY_OFF;
+			$ctx_app_hints	=	BOSSSECRETARY_HINTS;
+			$ctx_bsc		=	BOSSSECRETARY_CONTEXT;
+
+			$ext->addInclude('from-internal-additional', $ctx_bsc);
+			$ext->addInclude($ctx_bsc, $ctx_app_toggle);
+			$ext->addInclude($ctx_bsc, $ctx_app_on);
+			$ext->addInclude($ctx_bsc, $ctx_app_off);
+			$ext->addInclude($ctx_bsc, $ctx_app_hints);
+
+			if (!empty($groups))
+			{
+
+				$astman->database_deltree("bosssecretary/group");
+				$groups = bosssecretary_to_group($groups);
+
+
+
+				foreach ($groups as $group)
+				{
+					$id_group = $group["id_group"];
+
+					foreach ($group["bosses"] as $extension)
+					{
+						$astman->database_put("bosssecretary","group/$id_group/member/$extension", "boss");
+						$astman->database_put("bosssecretary","group/member/$extension", $id_group);
+					}
+					foreach ($group["secretaries"] as $extension)
+					{
+						$astman->database_put("bosssecretary","group/$id_group/member/$extension", "secretary");
+						$astman->database_put("bosssecretary","group/member/$extension", $id_group);
+					}
+					foreach ($group["chiefs"] as $extension)
+					{
+						$astman->database_put("bosssecretary","group/$id_group/member/$extension", "chief");
+					}
+				}
+				// :::: BSC Off [app-bosssecretary-on] ::::
+
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_noop("Bosssecretary on starts..."));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_answer());
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_macro ('user-callerid'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_wait ('2'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/member/${AMPUSER})}','on','exit'));
+				$ext->add($ctx_app_on, $fcc_on, 'on', new ext_setvar('GROUP','${DB(bosssecretary/group/member/${AMPUSER})}'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_dbdel('bosssecretary/group/${GROUP}/locked'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_setvar('STATE','NOT_INUSE'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_gosub('1','sstate',$ctx_app_on));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_playback('activated'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_hangup());
+				$ext->add($ctx_app_on, $fcc_on, 'exit', new ext_noop('${AMPUSER} doesn\\\'t belongs bosssecretary group'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_hangup());
+				$ext->add($ctx_app_on, 'sstate', '', new ext_setvar('DEVICE_STATE(Custom:BSC${GROUP})','${STATE}'));
+				$ext->add($ctx_app_on, 'sstate', 'return', new ext_return());
+
+
+				// :::: BSC Off [app-bosssecretary-off] ::::
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_noop("Bosssecretary off starts..."));
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_answer());
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_macro ('user-callerid'));
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_wait ('2'));
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/member/${AMPUSER})}','off','exit'));
+				$ext->add($ctx_app_off, $fcc_off, 'off', new ext_setvar('GROUP','${DB(bosssecretary/group/member/${AMPUSER})}'));
+				$ext->add($ctx_app_off, $fcc_off, "", new ext_setvar('DB(bosssecretary/group/${GROUP}/locked)',"1"));
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_setvar('STATE','INUSE'));
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_gosub('1','sstate',$ctx_app_off));
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_playback('de-activated'));
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_hangup());
+				$ext->add($ctx_app_off, $fcc_off, 'exit', new ext_noop('${AMPUSER} doesn\\\'t belongs bosssecretary group'));
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_hangup());
+				$ext->add($ctx_app_off, 'sstate', '', new ext_setvar('DEVICE_STATE(Custom:BSC${GROUP})','${STATE}'));
+				$ext->add($ctx_app_off, 'sstate', 'return', new ext_return());
+
+				// :::: BSC Toggle [app-bosssecretary-toggle] ::::
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_noop("Bosssecretary toggle starts..."));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_answer());
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_macro ('user-callerid'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_wait ('2'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/member/${AMPUSER})}','check','exit' ));
+				$ext->add($ctx_app_toggle, $fcc_toggle, 'check', new ext_setvar('GROUP','${DB(bosssecretary/group/member/${AMPUSER})}'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/${GROUP}/locked)}','unlock', 'lock'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, "lock", new ext_setvar('DB(bosssecretary/group/${GROUP}/locked)',"1"));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_setvar('STATE','INUSE'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_gosub('1','sstate',$ctx_app_toggle));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_playback('de-activated'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_hangup());
+				$ext->add($ctx_app_toggle, $fcc_toggle, 'unlock', new ext_dbdel('bosssecretary/group/${GROUP}/locked'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_setvar('STATE','NOT_INUSE'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_gosub('1','sstate',$ctx_app_toggle));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_playback('activated'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_hangup());
+				$ext->add($ctx_app_toggle, $fcc_toggle, 'exit', new ext_noop('${AMPUSER} doesn\\\'t belongs bosssecretary group'));
+				$ext->add($ctx_app_toggle, $fcc_toggle, '', new ext_hangup());
+				$ext->add($ctx_app_toggle, 'sstate', '', new ext_setvar('DEVICE_STATE(Custom:BSC${GROUP})','${STATE}'));
+				$ext->add($ctx_app_toggle, 'sstate', 'return', new ext_return());
+
+				// :::: BSC Hints [app-bosssecretary-hints] ::::
+				foreach ($groups as $group)
+				{
+
+					$id_group = $group["id_group"];
+					foreach ($group["bosses"] as $extension)
+					{
+						$hint = "Custom:BSC$id_group";
+						$ext_subscribed = $fcc_toggle . $extension;
+						$ext->add($ctx_app_hints, $ext_subscribed, '', new ext_goto(1, $fcc_toggle, $ctx_app_toggle));
+						$ext->addHint($ctx_app_hints, $ext_subscribed, $hint);
+
+					}
+					foreach ($group["secretaries"] as $extension)
+					{
+						$hint = "Custom:BSC$id_group";
+						$ext_subscribed = $fcc_toggle . $extension;
+						$ext->add($ctx_app_hints, $ext_subscribed, '', new ext_goto(1, $fcc_toggle, $ctx_app_toggle));
+						$ext->addHint($ctx_app_hints, $ext_subscribed, $hint);
+					}
+
+				}
+
+				// :::: BSC Context [ext-bosssecretary] ::::
+				foreach ($groups as $group)
+				{
+					$AllExtensions = array_merge($group["bosses"], $group["secretaries"]);
+					$id_group = $group["id_group"];
+
+					foreach ($group["bosses"] as $extension)
+					{
+						$ext->add($ctx_bsc, $extension, '', new ext_noop("Bosssecretary: Checking  lock for $extension extension"));
+						$ext->add($ctx_bsc, $extension, '', new ext_macro ('user-callerid'));
+						$ext->add($ctx_bsc, $extension, '', new ext_setvar('CALLER','${CALLERID(num)}'));
+						$ext->add($ctx_bsc, $extension, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/'.$id_group.'/member/${CALLER})}','exit_module'));
+						$ext->add($ctx_bsc, $extension, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/'.$id_group.'/locked)}','exit_module','run_module'));
+						$ext->add($ctx_bsc, $extension, 'run_module', new ext_noop("Bosssecretary: Executing module"));
+						$ext->add($ctx_bsc, $extension, '', new ext_set("PJSIP_HEADER(add,Alert-Info)", "<http://nohost>;info=alert-group;x-line-id=0")); //ext_sipaddheader("Alert-Info", "<http://nohost>\;info=alert-group\;x-line-id=0"));
+						$extensions = array();
+						
+						// David
+						foreach ($group["secretaries"] as $sip_extension)
+						{
+							$extensions[] = "$sip_extension";
+						}
+						//	$extensions[] = "$extension";
+						$args = '${RINGTIMER},${DIAL_OPTIONS},' . implode ("-", $extensions);
+						$ext->add($ctx_bsc, $extension, '', new ext_macro ("dial", $args));
+						$ext->add($ctx_bsc, $extension, 'exit_module', new ext_noop("Bosssecretary: Exit") );
+						$ext->add($ctx_bsc, $extension, '', new ext_goto(1, $extension, "ext-local") );
+						$extensions = "";
+					}
+				}
+			}
+				// Redirect calls from PSTN 
+				$context = 'bosssecretary-routing';
+
+$ext->add($context, '_.', '', new ext_noop('bosssecretary: call from PSTN'));
+$ext->add($context, '_.', '', new ext_macro('user-callerid'));
+//$ext->add('from-pstn', '_.', '', new ext_gotoif('$["${DB(bosssecretary/group/member/${EXTEN})}" = "boss"]', 'ext-bosssecretary,${EXTEN},1', 'from-pstn,${EXTEN},1'));
+//$ext->add($context, '_.', '', new ext_execif('$["${DB(bosssecretary/group/member/${EXTEN})}" = "boss"]', 'Goto(ext-bosssecretary,${EXTEN},1)'));
+//$ext->add($context, '_.', '', new ext_goto('from-pstn,${EXTEN},1')); 
+				//$ext->add($context, '_.', '', new ext_noop('bosssecretary: call from PSTN, sending to ext-bosssecretary'));
+				$ext->add($context, '_.', '', new ext_goto('ext-bosssecretary,${EXTEN},1'));
+Tú dijiste:
+tcpdump para capturar paquetes SIP
+
+
+ChatGPT Plus
+Para capturar paquetes SIP (Session Initiation Protocol) con tcpdump, podés usar filtros que apunten al puerto SIP típico (5060 UDP o TCP), o incluso filtrar por contenido si es necesario. A continuación te muestro varios ejemplos útiles:
+
+🔸 1. Capturar todo el tráfico SIP (puerto 5060)
+bash
+Copiar
+Editar
+sudo tcpdump -i any port 5060 -nn -vvv -s 0 -A
+Explicación:
+
+-i any: escucha en todas las interfaces.
+
+port 5060: filtra el puerto SIP estándar.
+
+-nn: no resuelve nombres ni puertos.
+
+-vvv: modo muy detallado.
+
+-s 0: captura el paquete completo.
+
+-A: muestra el contenido en ASCII (útil para ver el contenido SIP legible).
+
+🔸 2. Capturar tráfico SIP UDP solamente
+bash
+Copiar
+Editar
+sudo tcpdump -i any udp port 5060 -nn -vvv -s 0 -A
+🔸 3. Capturar SIP desde o hacia una IP específica
+bash
+Copiar
+Editar
+sudo tcpdump -i any port 5060 and host 192.168.1.100 -nn -vvv -s 0 -A
+🔸 4. Capturar y guardar en archivo .pcap
+bash
+Copiar
+Editar
+sudo tcpdump -i any port 5060 -nn -s 0 -w sip_traffic.pcap
+Luego podés analizar ese archivo con Wireshark:
+
+bash
+Copiar
+Editar
+wireshark sip_traffic.pcap
+🔸 5. Capturar SIP y RTP (puertos SIP + rango RTP, típicamente 10000-20000)
+bash
+Copiar
+Editar
+sudo tcpdump -i any portrange 5060-20000 -nn -s 0 -w voip_full.pcap
+🔸 6. Filtrar por método SIP (por contenido)
+Si querés capturar solo los paquetes que contienen el método SIP como INVITE, BYE, etc.:
+
+bash
+Copiar
+Editar
+sudo tcpdump -i any -nn -s 0 -A | grep -i "INVITE"
+⚠️ Esto no es muy eficiente porque inspecciona texto en crudo, pero puede servir en análisis rápidos.
+
+¿Querés que te arme un comando específico para FreePBX, Asterisk o una IP/PBX particular?
+
+
+
+
+
+
+
+
+Tú dijiste:
+ver logs de asterisk
+
+
+ChatGPT Plus
+Para ver los logs de Asterisk, tenés varias opciones dependiendo del nivel de detalle que querés y qué tipo de logs estás buscando (llamadas, errores, consola, etc.).
+
+🔸 1. Ver logs en tiempo real desde consola Asterisk
+bash
+Copiar
+Editar
+sudo asterisk -rvvvvv
+Te conecta a la consola de Asterisk con verbosity alto (-vvvvv).
+
+Desde ahí podés ver en tiempo real qué pasa: llamadas, registros SIP, errores, etc.
+
+También podés aumentar o reducir el nivel con:
+
+bash
+Copiar
+Editar
+core set verbose 5
+core set debug 5
+🔸 2. Ver logs en archivos (full, error, messages, etc.)
+Los archivos de log de Asterisk normalmente se encuentran en:
+
+swift
+Copiar
+Editar
+/var/log/asterisk/
+Los más comunes:
+
+/var/log/asterisk/full → log completo (llamadas, registros, errores, etc.)
+
+/var/log/asterisk/messages → mensajes generales
+
+/var/log/asterisk/debug → si tenés activado el debug
+
+/var/log/asterisk/cdr-csv/Master.csv → registro de llamadas (CDR)
+
+📌 Para ver en tiempo real:
+
+bash
+Copiar
+Editar
+sudo tail -f /var/log/asterisk/full
+🔸 3. Activar logs si no están funcionando
+Asegurate de tener bien configurado el archivo de logger:
+
+ini
+Copiar
+Editar
+; /etc/asterisk/logger.conf
+[general]
+dateformat=%F %T
+
+[logfiles]
+full => notice,warning,error,debug,verbose
+messages => notice,warning,error
+Luego recargás el logger:
+
+bash
+Copiar
+Editar
+sudo asterisk -rx "logger reload"
+🔸 4. Filtrar logs por llamada específica
+Si conocés el CallerID o el número de extensión, podés hacer:
+
+bash
+Copiar
+Editar
+grep 300 /var/log/asterisk/full
+o con less:
+
+bash
+Copiar
+Editar
+less +F /var/log/asterisk/full
+Presioná / dentro de less y escribí el número o término a buscar.
+
+¿Querés ver logs de una llamada específica o detectar algún problema en particular (por ejemplo: fallos de registro, llamadas no completadas, etc.)? Puedo ayudarte a filtrar.
+
+
+
+
+
+
+
+
+Tú dijiste:
+estoy con el modulo bosssecretary en asterisk, esta activada la redireccion, cuando llamo al jefe me tira el mensaje "Decline" y no llama a la secretaria. Log de asterisk:
+Executing [300@from-internal:6] NoOp("PJSIP/501-0000000b", "Bosssecretary: Executing module") in new stack
+[2025-07-11 11:20:25] WARNING[3891][C-00000009]: pbx.c:2942 pbx_extension_helper: No application 'SIPAddHeader' for extension (from-internal, 300, 7)
+
+
+ChatGPT Plus
+El error que ves:
+
+pgsql
+Copiar
+Editar
+WARNING[3891][C-00000009]: pbx.c:2942 pbx_extension_helper: No application 'SIPAddHeader' for extension (from-internal, 300, 7)
+significa que Asterisk no reconoce el comando SIPAddHeader, que es una aplicación usada típicamente para agregar encabezados SIP personalizados (muy útil en módulos como bosssecretary).
+
+✅ Solución
+La aplicación SIPAddHeader no está disponible en canales PJSIP, solo en canales chan_sip. Y vos estás usando PJSIP:
+
+Copiar
+Editar
+PJSIP/501-0000000b
+🔄 Alternativas para PJSIP
+Cuando estás usando PJSIP, debés usar:
+
+asterisk
+Copiar
+Editar
+PJSIP_HEADER(add,Header-Name)=value
+En lugar de:
+
+asterisk
+Copiar
+Editar
+SIPAddHeader(Header-Name: value)
+🔧 Cómo adaptar tu dialplan
+Revisá el contexto que genera la redirección del módulo bosssecretary y cambiá la línea que dice:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,SIPAddHeader(Diversion: <sip:secretaria@ip>;reason=unavailable)
+Por:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Set(PJSIP_HEADER(add,Diversion)=<sip:secretaria@ip>;reason=unavailable)
+🔎 Asegurate de que esa línea esté justo antes del Dial() o del Goto.
+
+📌 Bonus: Verificá si PJSIP_HEADER está disponible
+Conectate a la consola de Asterisk:
+
+bash
+Copiar
+Editar
+sudo asterisk -rvvvvv
+Y escribí:
+
+bash
+Copiar
+Editar
+core show application PJSIP_HEADER
+Debería mostrarte la documentación si está cargado.
+
+¿Querés que revise el fragmento de extensions.conf o extensions_additional.conf que genera ese error para ayudarte a editarlo correctamente? Podés copiarlo y te digo qué reemplazar.
+
+
+
+
+
+
+
+
+Tú dijiste:
+core show application PJSIP_HEADER
+Your application(s) is (are) not registered
+Command 'core show application PJSIP_HEADER' failed.
+
+
+ChatGPT Plus
+Gracias por confirmarlo. El error:
+
+java
+Copiar
+Editar
+Your application(s) is (are) not registered
+Command 'core show application PJSIP_HEADER' failed.
+indica que PJSIP_HEADER no es una application, sino una función de canal.
+
+✅ Forma correcta de consultarlo
+Usá:
+
+bash
+Copiar
+Editar
+core show function PJSIP_HEADER
+Y deberías ver algo como:
+
+csharp
+Copiar
+Editar
+  -= Info about function 'PJSIP_HEADER' =-
+
+[Syntax]
+PJSIP_HEADER(read|remove,name[,index])
+PJSIP_HEADER(add,name)=value
+...
+Esto confirma que podés usarla con Set() en el dialplan.
+
+🔧 Cómo usarlo en tu extensions.conf o código del módulo
+Reemplazá:
+
+asterisk
+Copiar
+Editar
+same => n,SIPAddHeader(Diversion: <sip:secretaria@ip>;reason=unavailable)
+Por:
+
+asterisk
+Copiar
+Editar
+same => n,Set(PJSIP_HEADER(add,Diversion)=<sip:secretaria@ip>;reason=unavailable)
+⚠️ Esto solo funciona si el canal que realiza la llamada es PJSIP. No uses SIPAddHeader con PJSIP.
+
+Si querés, pegá el contexto que estás usando para bosssecretary y te doy el reemplazo exacto.
+
+
+
+
+
+
+
+
+Tú dijiste:
+[ext-bosssecretary]
+include => ext-bosssecretary-custom
+include => app-bosssecretary-toggle
+include => app-bosssecretary-on
+include => app-bosssecretary-off
+include => app-bosssecretary-hints
+exten => 300,1,Noop(Bosssecretary: Checking  lock for 300 extension)
+exten => 300,n,Gosub(macro-user-callerid,s,1())
+exten => 300,n,Set(CALLER=${CALLERID(num)})
+exten => 300,n,GotoIf(${DB_EXISTS(bosssecretary/group/1/member/${CALLER})}?exit_module)
+exten => 300,n,GotoIf(${DB_EXISTS(bosssecretary/group/1/locked)}?exit_module:run_module)
+exten => 300,n(run_module),Noop(Bosssecretary: Executing module)
+exten => 300,n,SIPAddHeader(Alert-Info: <http://nohost>\;info=alert-group\;x-line-id=0)
+exten => 300,n,Gosub(macro-dial,s,1(${RINGTIMER},${DIAL_OPTIONS},301))
+exten => 300,n(exit_module),Noop(Bosssecretary: Exit)
+exten => 300,n,Goto(ext-local,300,1)
+
+;--== end of [ext-bosssecretary] ==--;
+
+
+ChatGPT Plus
+Gracias por compartir tu contexto ext-bosssecretary. Como estás usando PJSIP (según tu log: PJSIP/501-0000000b), el uso de SIPAddHeader es incorrecto, ya que no tiene efecto con canales PJSIP y de hecho genera el error que ves.
+
+✅ Versión corregida del contexto
+Reemplazá esta línea:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,SIPAddHeader(Alert-Info: <http://nohost>\;info=alert-group\;x-line-id=0)
+Por esta otra:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Set(PJSIP_HEADER(add,Alert-Info)=<http://nohost>\;info=alert-group\;x-line-id=0)
+🔍 Contexto completo corregido
+asterisk
+Copiar
+Editar
+[ext-bosssecretary]
+include => ext-bosssecretary-custom
+include => app-bosssecretary-toggle
+include => app-bosssecretary-on
+include => app-bosssecretary-off
+include => app-bosssecretary-hints
+
+exten => 300,1,Noop(Bosssecretary: Checking  lock for 300 extension)
+exten => 300,n,Gosub(macro-user-callerid,s,1())
+exten => 300,n,Set(CALLER=${CALLERID(num)})
+exten => 300,n,GotoIf(${DB_EXISTS(bosssecretary/group/1/member/${CALLER})}?exit_module)
+exten => 300,n,GotoIf(${DB_EXISTS(bosssecretary/group/1/locked)}?exit_module:run_module)
+exten => 300,n(run_module),Noop(Bosssecretary: Executing module)
+exten => 300,n,Set(PJSIP_HEADER(add,Alert-Info)=<http://nohost>\;info=alert-group\;x-line-id=0)
+exten => 300,n,Gosub(macro-dial,s,1(${RINGTIMER},${DIAL_OPTIONS},301))
+exten => 300,n(exit_module),Noop(Bosssecretary: Exit)
+exten => 300,n,Goto(ext-local,300,1)
+📌 Notas adicionales
+Si más adelante querés agregar otros encabezados SIP personalizados (como Diversion), hacelo también con PJSIP_HEADER.
+
+Asegurate de que la extensión 301 (la secretaria) esté registrada y disponible, y que tenga permiso de ser llamada desde esta lógica.
+
+Si usás Dial() directamente en lugar de macro-dial, podés agregar el encabezado justo antes del Dial() como en:
+
+asterisk
+Copiar
+Editar
+Set(PJSIP_HEADER(add,Diversion)=<sip:301@yourdomain>;reason=unavailable)
+¿Querés que revise también el destino final de macro-dial para confirmar que efectivamente llama a la secretaria si el jefe no está disponible?
+
+
+
+
+
+
+
+
+Tú dijiste:
+corregí eso y ahora me tira:
+    -- Executing [s@macro-dial:31] Gosub("PJSIP/501-0000000e", "dial-with-exten,,1()") in new stack
+[2025-07-11 11:31:47] ERROR[5162][C-0000000c]: app_stack.c:616 gosub_exec: Gosub attempted to reach non-existent destination 'dial-with-exten,s,1' from 'macro-dial,s,31'
+
+sin embargo parece que hace la redireccion por lo que vi en logs anteriores
+
+
+ChatGPT Plus
+Ese error:
+
+css
+Copiar
+Editar
+ERROR[5162][C-0000000c]: app_stack.c:616 gosub_exec: Gosub attempted to reach non-existent destination 'dial-with-exten,s,1' from 'macro-dial,s,31'
+significa que Asterisk está intentando ejecutar:
+
+scss
+Copiar
+Editar
+Gosub(dial-with-exten,s,1)
+pero no existe el contexto dial-with-exten con la extensión s.
+
+🔎 Por qué pasa esto
+Esto ocurre porque algún lugar del contexto macro-dial (que vos estás llamando con esta línea):
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(${RINGTIMER},${DIAL_OPTIONS},301))
+...intenta invocar un contexto dial-with-exten que no está definido.
+
+Es probable que:
+
+Estés usando una versión de FreePBX o Asterisk donde macro-dial asume que existe dial-with-exten.
+
+Algún hook o modificación del módulo bosssecretary provoca eso.
+
+A pesar del error, la llamada continúa porque no era crítica.
+
+✅ Soluciones posibles
+✅ Opción 1: Crear un contexto vacío para evitar el error
+Agregá este contexto en un archivo de dialplan (por ejemplo, extensions_custom.conf):
+
+asterisk
+Copiar
+Editar
+[dial-with-exten]
+exten => s,1,Return()
+Esto evita el error y no afecta el comportamiento (es un "stub").
+
+✅ Opción 2: Verificá si tu FreePBX ya tiene el contexto
+Podés revisar si existe en consola con:
+
+bash
+Copiar
+Editar
+dialplan show dial-with-exten
+Si no aparece, entonces no existe y deberías usar la opción anterior.
+
+✅ Opción 3: Usar directamente Dial() (si querés evitar macro-dial)
+Si no dependés de macro-dial, podés hacer algo como:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Dial(PJSIP/301,${RINGTIMER},${DIAL_OPTIONS})
+Pero FreePBX usa macro-dial por varias razones (grabación, CDR, etc.), así que solo hacelo si sabés que no dependés de su lógica.
+
+🧠 Recomendación
+Agregá el contexto dial-with-exten vacío como se muestra arriba. Es la forma segura y no invasiva de resolver ese error sin romper nada más en FreePBX.
+
+¿Querés que lo armemos completo en un extensions_custom.conf y lo incluyas desde tu módulo?
+
+
+
+
+
+
+
+
+Tú dijiste:
+dialplan show dial-with-exten
+[ Context 'dial-with-exten' created by 'pbx_config' ]
+  '_X.' =>          1. Dial(${ds}${CWRING}b(func-apply-sipheaders^s^1),) [extensions_additional.conf:3164]
+                    2. Return()                                   [extensions_additional.conf:3165]
+  '_X' =>           1. Dial(${ds}${CWRING}b(func-apply-sipheaders^s^1),) [extensions_additional.conf:3167]
+                    2. Return()                                   [extensions_additional.conf:3168]
+  Include =>        'dial-with-exten-custom'                      [pbx_config]
+
+-= 2 extensions (4 priorities) in 1 context. =-
+
+
+ChatGPT Plus
+Perfecto, gracias por ese output.
+
+Significa que el contexto dial-with-exten sí existe, pero no tiene definida la extensión s, que es la que se está intentando invocar:
+
+arduino
+Copiar
+Editar
+Gosub("PJSIP/501-0000000e", "dial-with-exten,,1()")
+🔍 ¿Qué está mal?
+Tu Gosub() intenta llamar a:
+
+csharp
+Copiar
+Editar
+dial-with-exten, s, 1
+Pero ese contexto solo tiene definidas las extensiones:
+
+_X.
+
+_X
+
+No tiene s.
+
+✅ Solución recomendada
+Agregá una extensión s genérica en el contexto dial-with-exten-custom, que es un include pensado para sobreescribir o ampliar dial-with-exten.
+
+📁 Archivo: /etc/asterisk/extensions_custom.conf
+Agregá:
+
+asterisk
+Copiar
+Editar
+[dial-with-exten-custom]
+exten => s,1,Return()
+✅ Luego recargá el dialplan:
+bash
+Copiar
+Editar
+sudo asterisk -rx "dialplan reload"
+🎯 Resultado
+Con eso, Asterisk va a encontrar la extensión s en el contexto dial-with-exten, evitará el error:
+
+nginx
+Copiar
+Editar
+Gosub attempted to reach non-existent destination 'dial-with-exten,s,1'
+Y todo seguirá funcionando normalmente, ya que este Gosub() probablemente es opcional.
+
+¿Querés que también revise qué hace func-apply-sipheaders o si se necesita agregar un encabezado adicional como parte del módulo?
+
+
+
+
+
+
+
+
+Tú dijiste:
+ahora llama directo a mi jefe, yo quiero que redirija a mi secretaria
+
+
+ChatGPT Plus
+Perfecto, eso aclara mucho. Si al llamar al jefe (extensión 300) te atiende directamente el jefe, significa que la lógica del módulo bosssecretary está saltándose la redirección hacia la secretaria (301) y está ejecutando la última línea:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Goto(ext-local,300,1)
+🧩 ¿Qué debería hacer?
+Vamos a revisar la lógica actual que tenés:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,GotoIf(${DB_EXISTS(bosssecretary/group/1/member/${CALLER})}?exit_module)
+exten => 300,n,GotoIf(${DB_EXISTS(bosssecretary/group/1/locked)}?exit_module:run_module)
+Esto dice:
+
+Si el que llama está registrado como "miembro" (probablemente el jefe o algún privilegiado) → salta al exit_module y llama al jefe directo.
+
+Si el grupo está "locked" (bloqueado), también salta al exit_module.
+
+Luego:
+
+asterisk
+Copiar
+Editar
+exten => 300,n(run_module),Noop(Bosssecretary: Executing module)
+exten => 300,n,Set(PJSIP_HEADER(...))  ; (esto es donde agregás encabezados)
+exten => 300,n,Gosub(macro-dial,s,1(${RINGTIMER},${DIAL_OPTIONS},301))
+Y finalmente, en exit_module:
+
+asterisk
+Copiar
+Editar
+exten => 300,n(exit_module),Noop(Bosssecretary: Exit)
+exten => 300,n,Goto(ext-local,300,1)  ; llama al jefe directamente
+✅ Solución: forzar que redirija a la secretaria
+Si querés que todas las llamadas (excepto las de la secretaria o el jefe mismo) sean redirigidas a la secretaria, revisemos:
+
+¿Qué contiene bosssecretary/group/1/member/XXX en la base de datos interna?
+
+¿Quién está definido como “locked” o no?
+
+🔧 Opción simple: ignorar el salto a exit_module (para testeo)
+Comentá o eliminá momentáneamente esta línea:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Goto(ext-local,300,1)
+Y forzá que siempre llame a la secretaria para probar:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(${RINGTIMER},${DIAL_OPTIONS},301))
+✅ Opción más elegante: invertir la lógica
+Cambiala para que redirija a la secretaria si el jefe está "ocupado" o "modo secretaria activado".
+
+Por ejemplo:
+
+asterisk
+Copiar
+Editar
+exten => 300,1,Noop(Bosssecretary: Checking lock for 300)
+exten => 300,n,Gosub(macro-user-callerid,s,1())
+exten => 300,n,Set(CALLER=${CALLERID(num)})
+
+; Si el que llama ES el jefe o la secretaria, dejar pasar
+exten => 300,n,GotoIf($["${CALLER}" = "301"]?exit_module)
+exten => 300,n,GotoIf($["${CALLER}" = "300"]?exit_module)
+
+; Si está en modo secretaria, redirigir
+exten => 300,n,GotoIf(${DB_EXISTS(bosssecretary/group/1/locked)}?run_module:exit_module)
+
+exten => 300,n(run_module),Noop(Bosssecretary: Ejecutando redirección a secretaria)
+exten => 300,n,Set(PJSIP_HEADER(add,Alert-Info)=<http://nohost>\;info=alert-group\;x-line-id=0)
+exten => 300,n,Gosub(macro-dial,s,1(${RINGTIMER},${DIAL_OPTIONS},301))
+
+exten => 300,n(exit_module),Noop(Bosssecretary: Llamando directamente al jefe)
+exten => 300,n,Goto(ext-local,300,1)
+🧪 Podés revisar el estado de la DB interna de Asterisk así:
+bash
+Copiar
+Editar
+asterisk -rx "database show bosssecretary"
+Y vas a ver cosas como:
+
+bash
+Copiar
+Editar
+/bosssecretary/group/1/locked             : 1
+/bosssecretary/group/1/member/501         : 1
+Podés borrarlos para pruebas con:
+
+bash
+Copiar
+Editar
+asterisk -rx "database deltree bosssecretary"
+¿Querés que prepare un ejemplo completo de lógica que redirija siempre a la secretaria si el modo secretaria está activado?
+
+
+2/2
+
+
+
+
+
+
+
+
+Tú dijiste:
+ Executing [300@from-internal:6] NoOp("PJSIP/501-00000017", "Bosssecretary: Executing module") in new stack
+    -- Executing [300@from-internal:7] Set("PJSIP/501-00000017", "PJSIP_HEADER(add,Alert-Info)=<http://nohost>;info=alert-group;x-line-id=0") in new stack
+    -- Executing [300@from-internal:8] Gosub("PJSIP/501-00000017", "macro-dial,s,1(,HhTtr,301)") in new stack
+    -- Executing [s@macro-dial:1] NoOp("PJSIP/501-00000017", "Blind Transfer: , Attended Transfer: , User: 501, Alert Info: ") in new stack
+    -- Executing [s@macro-dial:2] Set("PJSIP/501-00000017", "__CRM_SOURCE=501") in new stack
+    -- Executing [s@macro-dial:3] ExecIf("PJSIP/501-00000017", "1?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:4] ExecIf("PJSIP/501-00000017", "0?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:5] ExecIf("PJSIP/501-00000017", "0?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:6] ExecIf("PJSIP/501-00000017", "0?Set(CHANNEL(musicclass)=)") in new stack
+    -- Executing [s@macro-dial:7] AGI("PJSIP/501-00000017", "agi://127.0.0.1/dialparties.agi") in new stack
+ agi://127.0.0.1/dialparties.agi: Starting New Dialparties.agi
+ agi://127.0.0.1/dialparties.agi: Caller ID name is '501' number is '501'
+ agi://127.0.0.1/dialparties.agi: CW Ignore is:
+ agi://127.0.0.1/dialparties.agi: CF Ignore is:
+ agi://127.0.0.1/dialparties.agi: CW IN_USE/BUSY is: 1
+ agi://127.0.0.1/dialparties.agi: Ringgroup confirm is  :
+        > agi://127.0.0.1/dialparties.agi: USE_CONFIRMATION:  'FALSE'
+        > agi://127.0.0.1/dialparties.agi: RINGGROUP_INDEX:   ''
+ agi://127.0.0.1/dialparties.agi: Methodology of ring is  'none'
+    -- agi://127.0.0.1/dialparties.agi: Added extension 301 to extension map
+    -- agi://127.0.0.1/dialparties.agi: Extension 301 cf is disabled
+    -- agi://127.0.0.1/dialparties.agi: Extension 301 do not disturb is disabled
+       > agi://127.0.0.1/dialparties.agi: extnum 301 has:  cw: 1; hascfb: 0 [] hascfu: 0 []
+ agi://127.0.0.1/dialparties.agi: EXTENSION_STATE: 0 (NOT_INUSE)
+  == agi://127.0.0.1/dialparties.agi: Discovered PJSIP Endpoint PJSIP/301
+    -- agi://127.0.0.1/dialparties.agi: Ended up with real PJSIP Dial string PJSIP/301/sip:301@10.1.2.168:63086;ob
+    -- agi://127.0.0.1/dialparties.agi: dbset CALLTRACE/301 to 501
+    -- agi://127.0.0.1/dialparties.agi: Filtered ARG3: 301
+ agi://127.0.0.1/dialparties.agi: RVOL_MODE ''
+ agi://127.0.0.1/dialparties.agi: RVOL is:
+ agi://127.0.0.1/dialparties.agi: RVOLPARENT is:
+    -- <PJSIP/501-00000017>AGI Script agi://127.0.0.1/dialparties.agi completed, returning 0
+
+
+ChatGPT Plus
+Gracias por compartir los logs. Lo que veo en tu salida indica que la redirección a la secretaria (extensión 301) está funcionando correctamente, y que la llamada se está enviando a:
+
+bash
+Copiar
+Editar
+PJSIP/301/sip:301@10.1.2.168:63086;ob
+Eso significa que Asterisk está intentando contactar a la secretaria como lo esperás. No está llamando al jefe directamente, y por lo tanto la lógica de bosssecretary está funcionando.
+
+🟢 Estado actual
+✅ Llamás al 300 → entra al módulo bosssecretary
+
+✅ Se evalúa que está en modo secretaria (locked)
+
+✅ La lógica macro-dial es invocada con destino 301
+
+✅ Se genera correctamente el dial string PJSIP/301/...
+
+✅ No hay errores visibles
+
+🧪 ¿Qué puede estar faltando?
+Si no suena el teléfono de la secretaria o la llamada no completa, las causas probables son:
+
+🔸 1. Problema en el dispositivo de la secretaria (301)
+¿Está registrada?
+
+¿Está en la red correcta?
+
+¿Tiene habilitada la opción “No molestar” (DND)?
+
+¿El softphone o teléfono IP está funcionando?
+
+Verificá desde consola:
+
+bash
+Copiar
+Editar
+asterisk -rx "pjsip show endpoint 301"
+Y confirmá que diga algo como:
+
+makefile
+Copiar
+Editar
+Status: Available
+...
+Contact: sip:301@10.1.2.168:63086;ob
+🔸 2. Fallo en la red/RTP/audio
+¿Tenés audio entre llamador y secretaria?
+
+¿Estás usando NAT correctamente?
+
+¿Los puertos UDP para RTP están abiertos?
+
+Verificá en Wireshark o consola si se están negociando correctamente los medios.
+
+🔸 3. El teléfono 301 no contesta (pero sí suena)
+En ese caso, el sistema hizo su parte. Podés verificar en el log si aparece:
+
+diff
+Copiar
+Editar
+-- Called PJSIP/301/...
+-- Ringing
+Si no ves “Ringing”, puede que el dispositivo esté rechazando la llamada (por ejemplo, esté en estado busy, DND, etc.).
+
+✅ Próximo paso
+Ejecutá esto para confirmar si Asterisk ve el dispositivo como disponible:
+
+bash
+Copiar
+Editar
+asterisk -rx "pjsip show contacts"
+Buscá la línea de 301. Si no está en estado Avail, ahí está el problema.
+
+¿Querés que prepare una lógica para que, si 301 no contesta, reintente con el jefe o con un buzón de voz? ¿O querés que depuremos la conexión SIP con el dispositivo 301?
+
+
+
+
+
+
+
+
+Tú dijiste:
+    -- Executing [s@macro-dial:30] ExecIf("PJSIP/501-0000001c", "0?Set(ds=PJSIP/301/sip:301@10.1.2.168:63086;ob,,HhTtrg)") in new stack
+    -- Executing [s@macro-dial:31] Gosub("PJSIP/501-0000001c", "dial-with-exten,,1()") in new stack
+    -- Executing [s@dial-with-exten:1] Return("PJSIP/501-0000001c", "") in new stack
+    -- Executing [s@macro-dial:32] Set("PJSIP/501-0000001c", "DIALSTATUS=") in new stack
+    -- Executing [s@macro-dial:33] GosubIf("PJSIP/501-0000001c", "0?,1()") in new stack
+    -- Executing [s@macro-dial:34] NoOp("PJSIP/501-0000001c", "Returning since nobody answered") in new stack
+    -- Executing [s@macro-dial:35] Return("PJSIP/501-0000001c", "") in new stack
+    -- Executing [300@from-internal:9] NoOp("PJSIP/501-0000001c", "Bosssecretary: Exit") in new stack
+    -- Executing [300@from-internal:10] Goto("PJSIP/501-0000001c", "ext-local,300,1") in new stack
+
+
+el 301 está disponible
+
+
+ChatGPT Plus
+Gracias por compartir ese fragmento: el log es claro y apunta a lo siguiente:
+
+⚠️ El módulo está intentando llamar a la secretaria (301), pero no se está realizando la llamada
+En particular, estas dos líneas son la clave:
+
+typescript
+Copiar
+Editar
+-- Executing [s@macro-dial:30] ExecIf("PJSIP/501-0000001c", "0?Set(ds=PJSIP/301/sip:301@10.1.2.168:63086;ob,,HhTtrg)") in new stack
+-- Executing [s@macro-dial:32] Set("PJSIP/501-0000001c", "DIALSTATUS=") in new stack
+Esto nos dice:
+
+Asterisk descubrió el endpoint de la secretaria (sip:301@10.1.2.168:63086) pero no asignó el canal de destino (ds), porque la condición ExecIf(...) evaluó falso (0?Set(...)).
+
+Por lo tanto, no hay canal al que marcar, y DIALSTATUS queda vacío.
+
+Luego, cae en esta línea:
+
+graphql
+Copiar
+Editar
+-- Executing [s@macro-dial:34] NoOp("PJSIP/501-0000001c", "Returning since nobody answered")
+¡Pero en realidad ni siquiera intentó marcar!
+
+✅ Diagnóstico: macro-dial no recibió bien el tercer argumento (el número a marcar)
+Tu línea:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(${RINGTIMER},${DIAL_OPTIONS},301))
+Pasa argumentos a macro-dial, y este los usa así:
+
+ini
+Copiar
+Editar
+ARG1 = ringtimer
+ARG2 = options
+ARG3 = EXTENSION A LLAMAR
+El log indica que ARG3 está llegando vacío o malformado.
+
+✅ Solución
+Verificá que las variables ${RINGTIMER} y ${DIAL_OPTIONS} estén definidas antes del Gosub.
+
+Si querés hacer una prueba rápida y forzar el valor fijo, hacé así:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301))
+20 segundos de ring
+
+HhTtr son las opciones estándar
+
+301 es el interno de la secretaria
+
+📌 Si eso funciona, entonces el problema está en que:
+${RINGTIMER} está vacío
+
+${DIAL_OPTIONS} está vacío o malformado
+
+O alguna coma mal escapada en los argumentos
+
+Podés debuguear los valores antes de hacer el Gosub:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,NoOp(RINGTIMER=${RINGTIMER}, DIAL_OPTIONS=${DIAL_OPTIONS})
+¿Querés que te arme una versión completa con defaults seguros si las variables están vacías?
+
+
+
+
+
+
+
+
+Tú dijiste:
+   -- Executing [300@from-internal:6] NoOp("PJSIP/501-00000027", "Bosssecretary: Executing module") in new stack
+    -- Executing [300@from-internal:7] Set("PJSIP/501-00000027", "PJSIP_HEADER(add,Alert-Info)=<http://nohost>;info=alert-group;x-line-id=0") in new stack
+    -- Executing [300@from-internal:8] NoOp("PJSIP/501-00000027", "RINGTIMER=, DIAL_OPTIONS=HhTtr") in new stack
+    -- Executing [300@from-internal:9] Gosub("PJSIP/501-00000027", "macro-dial,s,1(20,HhTtr,301)") in new stack
+
+harcodeé el ring timer en gosub
+
+
+ChatGPT Plus
+¡Perfecto! Ahora sí estamos en buen camino.
+
+La línea:
+
+kotlin
+Copiar
+Editar
+-- Executing [300@from-internal:8] NoOp("PJSIP/501-00000027", "RINGTIMER=, DIAL_OPTIONS=HhTtr")
+confirma que:
+
+${RINGTIMER} estaba vacío
+
+${DIAL_OPTIONS} tenía el valor esperado: HhTtr
+
+✅ Estado actual
+Con tu línea:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301))
+ahora el dialplan está llamando correctamente a la secretaria con:
+
+Un ring timer explícito (20 segundos)
+
+Las opciones adecuadas
+
+El número correcto
+
+🎯 Recomendación final
+Si querés hacerlo más robusto y no depender de variables que pueden estar vacías, podés usar valores por defecto con lógica como esta:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Set(RINGTIMER=${IF($[${ISNULL(${RINGTIMER})}]?20:${RINGTIMER})})
+exten => 300,n,Set(DIAL_OPTIONS=${IF($[${ISNULL(${DIAL_OPTIONS})}]?HhTtr:${DIAL_OPTIONS})})
+exten => 300,n,NoOp(RINGTIMER=${RINGTIMER}, DIAL_OPTIONS=${DIAL_OPTIONS})
+exten => 300,n,Gosub(macro-dial,s,1(${RINGTIMER},${DIAL_OPTIONS},301))
+Así te asegurás de que nunca pasen valores vacíos a macro-dial.
+
+¿Querés que revise si podés controlar el desvío hacia la secretaria según un botón (feature code) o un estado dinámico (por ejemplo, un *71 para activar y *72 para desactivar)?
+
+
+
+
+
+
+
+
+Tú dijiste:
+pero sigue llamando directamente al 300
+
+
+ChatGPT Plus
+Gracias por el seguimiento. Si a pesar de que el macro-dial se invoca con el número 301, termina llamando igual al 300, es muy probable que el problema esté en cómo FreePBX maneja internamente el macro-dial y el dialparties.agi, que puede estar ignorando el número que le pasás y tomando el valor desde la base de datos de destinos del ext-local.
+
+🔍 Diagnóstico paso a paso
+Tu log muestra:
+
+arduino
+Copiar
+Editar
+Gosub("PJSIP/501-00000027", "macro-dial,s,1(20,HhTtr,301)")
+Y aún así:
+
+vbnet
+Copiar
+Editar
+Goto("PJSIP/501-00000027", "ext-local,300,1")
+al final termina llamando al jefe (300).
+
+Eso significa que la llamada a la secretaria (301) no se realizó o no se consideró exitosa, y por eso el flujo continúa al bloque exit_module, el cual hace:
+
+asterisk
+Copiar
+Editar
+Goto(ext-local,300,1)
+🔧 Solución recomendada: prevenir que vuelva a llamar al jefe
+Hay dos caminos:
+
+✅ OPCIÓN 1: DETENER el flujo si ya se llamó a la secretaria
+Modificá el bloque run_module así:
+
+asterisk
+Copiar
+Editar
+exten => 300,n(run_module),Noop(Bosssecretary: Ejecutando módulo)
+exten => 300,n,Set(PJSIP_HEADER(add,Alert-Info)=<http://nohost>\;info=alert-group\;x-line-id=0)
+exten => 300,n,Set(RINGTIMER=20)
+exten => 300,n,Set(DIAL_OPTIONS=HhTtr)
+exten => 300,n,Gosub(macro-dial,s,1(${RINGTIMER},${DIAL_OPTIONS},301))
+exten => 300,n,Hangup()
+Con eso, si la secretaria no atiende, se cuelga la llamada en lugar de seguir a:
+
+asterisk
+Copiar
+Editar
+exten => 300,n(exit_module),Goto(ext-local,300,1)
+✅ OPCIÓN 2: Solo permitir que el jefe o la secretaria salten el módulo
+Revisá si esta lógica se cumple:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,GotoIf($["${CALLER}" = "301"]?exit_module)
+exten => 300,n,GotoIf($["${CALLER}" = "300"]?exit_module)
+Todos los demás deberían ejecutar el bloque run_module.
+
+✅ Alternativa más limpia: usar Return() y aislar el salto
+Cambiá el bloque exit_module así:
+
+asterisk
+Copiar
+Editar
+exten => 300,n(exit_module),NoOp(Bosssecretary: Exit - no redirección)
+exten => 300,n,Return()
+Y mové la llamada directa al jefe fuera del módulo, por ejemplo, al contexto ext-local.
+
+🔚 En resumen
+🔧 Lo que está pasando:
+
+El módulo intenta llamar a 301 (secretaria), pero cuando no responde o se considera que nadie atendió, sigue el dialplan y cae en la llamada directa al 300.
+
+✅ Lo que podés hacer:
+
+Agregar un Hangup() o Return() después del macro-dial a 301.
+
+Controlar explícitamente el flujo para evitar que se vuelva al jefe.
+
+¿Querés que te prepare el módulo bosssecretary con control completo para:
+
+Activar/desactivar modo secretaria
+
+Derivar llamadas solo si el modo está activado
+
+Detener el flujo si no atiende la secretaria?
+
+Puedo darte un ejemplo completo.
+
+
+
+
+
+
+
+
+Tú dijiste:
+ahora cuelga pero no llama a la secretaria, el cual es el problema
+
+
+ChatGPT Plus
+Gracias por la aclaración. Si el flujo ahora cuelga pero nunca llega a llamar realmente a la secretaria (301), a pesar de que el log dice que invocás:
+
+scss
+Copiar
+Editar
+Gosub(macro-dial,s,1(20,HhTtr,301))
+…pero no hay rastro en los logs de que intente realmente marcar a 301, el problema más probable está en cómo se construye la variable ds dentro del macro-dial, y qué pasa en el AGI dialparties.agi.
+
+🧠 ¿Qué pasa dentro de macro-dial?
+FreePBX invoca internamente el script AGI dialparties.agi, que:
+
+Toma el argumento 3 (ARG3 = 301)
+
+Valida si el interno está disponible
+
+Construye la variable ds (el string de marcación real)
+
+Y si todo está bien, ejecuta el Dial(${ds})
+
+El problema está en esta línea de tu log:
+
+cpp
+Copiar
+Editar
+-- Executing [s@macro-dial:30] ExecIf("PJSIP/501-0000001c", "0?Set(ds=PJSIP/301/sip:301@10.1.2.168:63086;ob,,HhTtrg)") in new stack
+❗ El ExecIf evalúa a 0 (falso), entonces NO se setea ds, y por eso no se marca a nadie.
+
+✅ Solución concreta: pasar el número como lista (con @ o separados por -)
+El macro-dial de FreePBX espera el argumento 3 (ARG3) como una lista de internos válidos, no simplemente 301.
+
+🔧 En lugar de:
+asterisk
+Copiar
+Editar
+Gosub(macro-dial,s,1(20,HhTtr,301))
+✅ Usá esto:
+asterisk
+Copiar
+Editar
+Gosub(macro-dial,s,1(20,HhTtr,301@from-internal))
+O si estás seguro de que no usás contextos personalizados:
+
+asterisk
+Copiar
+Editar
+Gosub(macro-dial,s,1(20,HhTtr,301-))
+El - al final es importante, FreePBX lo interpreta como separación de internos (aunque solo haya uno).
+
+También podés probar con 301@from-internal, que fuerza el contexto.
+
+🧪 Opcional: Verificá que el 301 esté en un ring group
+Podés probar esto desde consola para asegurarte de que el interno 301 responde correctamente:
+
+bash
+Copiar
+Editar
+channel originate PJSIP/301 application Playback hello-world
+Si no suena, hay un problema de red o NAT.
+
+✅ Resumen final de solución sugerida
+En tu contexto ext-bosssecretary, cambiá:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301))
+por:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301-))
+o
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301@from-internal))
+¿Querés que te dé una versión completa del contexto con lógica más robusta (activación/desactivación + logueo + fallback)?
+
+
+
+
+
+
+
+
+Tú dijiste:
+ -- Executing [300@from-internal:6] NoOp("PJSIP/501-0000002b", "Bosssecretary: Executing module") in new stack
+    -- Executing [300@from-internal:7] Set("PJSIP/501-0000002b", "PJSIP_HEADER(add,Alert-Info)=<http://nohost>;info=alert-group;x-line-id=0") in new stack
+    -- Executing [300@from-internal:8] NoOp("PJSIP/501-0000002b", "RINGTIMER=, DIAL_OPTIONS=HhTtr") in new stack
+    -- Executing [300@from-internal:9] Gosub("PJSIP/501-0000002b", "macro-dial,s,1(20,HhTtr,301)") in new stack
+    -- Executing [s@macro-dial:1] NoOp("PJSIP/501-0000002b", "Blind Transfer: , Attended Transfer: , User: 501, Alert Info: ") in new stack
+    -- Executing [s@macro-dial:2] Set("PJSIP/501-0000002b", "__CRM_SOURCE=501") in new stack
+    -- Executing [s@macro-dial:3] ExecIf("PJSIP/501-0000002b", "1?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:4] ExecIf("PJSIP/501-0000002b", "0?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:5] ExecIf("PJSIP/501-0000002b", "0?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:6] ExecIf("PJSIP/501-0000002b", "0?Set(CHANNEL(musicclass)=)") in new stack
+    -- Executing [s@macro-dial:7] AGI("PJSIP/501-0000002b", "agi://127.0.0.1/dialparties.agi") in new stack
+ agi://127.0.0.1/dialparties.agi: Starting New Dialparties.agi
+ agi://127.0.0.1/dialparties.agi: Caller ID name is '501' number is '501'
+ agi://127.0.0.1/dialparties.agi: CW Ignore is:
+ agi://127.0.0.1/dialparties.agi: CF Ignore is:
+ agi://127.0.0.1/dialparties.agi: CW IN_USE/BUSY is: 1
+ agi://127.0.0.1/dialparties.agi: Ringgroup confirm is  :
+        > agi://127.0.0.1/dialparties.agi: USE_CONFIRMATION:  'FALSE'
+        > agi://127.0.0.1/dialparties.agi: RINGGROUP_INDEX:   ''
+ agi://127.0.0.1/dialparties.agi: Methodology of ring is  'none'
+    -- agi://127.0.0.1/dialparties.agi: Added extension 301 to extension map
+    -- agi://127.0.0.1/dialparties.agi: Extension 301 cf is disabled
+    -- agi://127.0.0.1/dialparties.agi: Extension 301 do not disturb is disabled
+       > agi://127.0.0.1/dialparties.agi: extnum 301 has:  cw: 1; hascfb: 0 [] hascfu: 0 []
+ agi://127.0.0.1/dialparties.agi: EXTENSION_STATE: 0 (NOT_INUSE)
+  == agi://127.0.0.1/dialparties.agi: Discovered PJSIP Endpoint PJSIP/301
+    -- agi://127.0.0.1/dialparties.agi: Ended up with real PJSIP Dial string PJSIP/301/sip:301@10.1.2.168:63086;ob
+    -- agi://127.0.0.1/dialparties.agi: dbset CALLTRACE/301 to 501
+    -- agi://127.0.0.1/dialparties.agi: Filtered ARG3: 301
+ agi://127.0.0.1/dialparties.agi: RVOL_MODE ''
+ agi://127.0.0.1/dialparties.agi: RVOL is:
+ agi://127.0.0.1/dialparties.agi: RVOLPARENT is:
+    -- <PJSIP/501-0000002b>AGI Script agi://127.0.0.1/dialparties.agi completed, returning 0
+    -- Executing [s@macro-dial:8] GotoIf("PJSIP/501-0000002b", "1?normdial") in new stack
+    -- Goto (macro-dial,s,11)
+    -- Executing [s@macro-dial:11] NoOp("PJSIP/501-0000002b", "Returned from dialparties with groups to dial") in new stack
+    -- Executing [s@macro-dial:12] NoOp("PJSIP/501-0000002b", "ringall array  ") in new stack
+    -- Executing [s@macro-dial:13] NoOp("PJSIP/501-0000002b", "ds= PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtr ") in new stack
+    -- Executing [s@macro-dial:14] NoOp("PJSIP/501-0000002b", "dsextra= ") in new stack
+    -- Executing [s@macro-dial:15] Set("PJSIP/501-0000002b", "ds=PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtr") in new stack
+    -- Executing [s@macro-dial:16] NoOp("PJSIP/501-0000002b", "ds= PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtr") in new stack
+    -- Executing [s@macro-dial:17] Set("PJSIP/501-0000002b", "__FMGL_DIAL=") in new stack
+    -- Executing [s@macro-dial:18] Set("PJSIP/501-0000002b", "LOOPCNT=1") in new stack
+    -- Executing [s@macro-dial:19] Set("PJSIP/501-0000002b", "ITER=1") in new stack
+    -- Executing [s@macro-dial:20] Set("PJSIP/501-0000002b", "__EXTTOCALL=301") in new stack
+    -- Executing [s@macro-dial:21] Set("PJSIP/501-0000002b", "__MCEXTTOCALL=301") in new stack
+    -- Executing [s@macro-dial:22] NoOp("PJSIP/501-0000002b", "Working with 301") in new stack
+    -- Executing [s@macro-dial:23] ExecIf("PJSIP/501-0000002b", "0?Set(HASH(__SIPHEADERS,Alert-Info)=Normal;volume=)") in new stack
+    -- Executing [s@macro-dial:24] ExecIf("PJSIP/501-0000002b", "0?Set(HASH(__SIPHEADERS,Alert-Info)=Normal;volume=)") in new stack
+    -- Executing [s@macro-dial:25] Set("PJSIP/501-0000002b", "ITER=2") in new stack
+    -- Executing [s@macro-dial:26] GotoIf("PJSIP/501-0000002b", "0?ndloopbegin") in new stack
+    -- Executing [s@macro-dial:27] Gosub("PJSIP/501-0000002b", "macro-dial-ringall-predial-hook,s,1()") in new stack
+    -- Executing [s@macro-dial-ringall-predial-hook:1] Return("PJSIP/501-0000002b", "") in new stack
+    -- Executing [s@macro-dial:28] ExecIf("PJSIP/501-0000002b", "0?Set(CWRING=r(callwaiting)):Set(CWRING=)") in new stack
+    -- Executing [s@macro-dial:29] ExecIf("PJSIP/501-0000002b", "0?Set(RGFMDIAL=301):Set(RGFMDIAL=)") in new stack
+    -- Executing [s@macro-dial:30] ExecIf("PJSIP/501-0000002b", "0?Set(ds=PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtrg)") in new stack
+    -- Executing [s@macro-dial:31] Gosub("PJSIP/501-0000002b", "dial-with-exten,,1()") in new stack
+    -- Executing [s@dial-with-exten:1] Return("PJSIP/501-0000002b", "") in new stack
+    -- Executing [s@macro-dial:32] Set("PJSIP/501-0000002b", "DIALSTATUS=") in new stack
+    -- Executing [s@macro-dial:33] GosubIf("PJSIP/501-0000002b", "0?,1()") in new stack
+    -- Executing [s@macro-dial:34] NoOp("PJSIP/501-0000002b", "Returning since nobody answered") in new stack
+    -- Executing [s@macro-dial:35] Return("PJSIP/501-0000002b", "") in new stack
+    -- Executing [300@from-internal:10] Hangup("PJSIP/501-0000002b", "") in new stack
+  == Spawn extension (from-internal, 300, 10) exited non-zero on 'PJSIP/501-0000002b'
+    -- Executing [h@from-internal:1] Gosub("PJSIP/501-0000002b", "macro-hangupcall,s,1") in new stack
+    -- Executing [s@macro-hangupcall:1] Set("PJSIP/501-0000002b", "__MCVMSTATUS=") in new stack
+    -- Executing [s@macro-hangupcall:2] Gosub("PJSIP/501-0000002b", "app-missedcall-hangup,s,1()") in new stack
+    -- Executing [s@app-missedcall-hangup:1] NoOp("PJSIP/501-0000002b", "Dialed: s") in new stack
+    -- Executing [s@app-missedcall-hangup:2] NoOp("PJSIP/501-0000002b", "Caller: 501") in new stack
+    -- Executing [s@app-missedcall-hangup:3] GotoIf("PJSIP/501-0000002b", "0?exit") in new stack
+    -- Executing [s@app-missedcall-hangup:4] Set("PJSIP/501-0000002b", "EXTENNUM=s") in new stack
+    -- Executing [s@app-missedcall-hangup:5] Set("PJSIP/501-0000002b", "FEXTENNUM=s") in new stack
+    -- Executing [s@app-missedcall-hangup:6] GotoIf("PJSIP/501-0000002b", "0?exit") in new stack
+    -- Executing [s@app-missedcall-hangup:7] AGI("PJSIP/501-0000002b", "agi://127.0.0.1/missedcallnotify.php,s,,s,0,,PJSIP/501-0000002b,,,,") in new stack
+    -- <PJSIP/501-0000002b>AGI Script agi://127.0.0.1/missedcallnotify.php completed, returning 0
+    -- Executing [s@app-missedcall-hangup:8] Return("PJSIP/501-0000002b", "") in new stack
+    -- Executing [s@macro-hangupcall:3] UserEvent("PJSIP/501-0000002b", "MES,RTPAUDIOQOSMESBRIDGED:,RTPAUDIOQOSMES:") in new stack
+    -- Executing [s@macro-hangupcall:4] GotoIf("PJSIP/501-0000002b", "1?theend") in new stack
+    -- Goto (macro-hangupcall,s,6)
+    -- Executing [s@macro-hangupcall:6] ExecIf("PJSIP/501-0000002b", "0?Set(CDR(recordingfile)=)") in new stack
+    -- Executing [s@macro-hangupcall:7] Hangup("PJSIP/501-0000002b", "") in new stack
+  == Spawn extension (macro-hangupcall, s, 7) exited non-zero on 'PJSIP/501-0000002b'
+
+
+ChatGPT Plus
+Gracias por compartir los logs detallados. Este registro confirma que Asterisk efectivamente construye el dial string para llamar a la secretaria, pero nunca llega a ejecutar el Dial(). Vamos directo al análisis.
+
+✅ Lo que sí está bien
+De los logs:
+
+perl
+Copiar
+Editar
+agi://127.0.0.1/dialparties.agi: Ended up with real PJSIP Dial string PJSIP/301/sip:301@10.1.2.168:63086;ob
+...
+-- Executing [s@macro-dial:15] Set("...", "ds=PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtr") in new stack
+✅ El dial string ds fue correctamente creado.
+
+✅ El sistema reconoció al interno 301, está disponible y no está en DND.
+
+✅ Se creó el contexto ds, el canal SIP está correcto.
+
+❌ Lo que no sucede
+Lo que falta completamente en los logs es esta línea típica:
+
+scss
+Copiar
+Editar
+-- Executing [s@macro-dial:36] Dial(${ds},20,HhTtr)
+Y eso significa que el Dial() nunca se ejecutó, aunque ds esté correctamente armado.
+
+🔍 ¿Por qué no se ejecuta el Dial()?
+Porque más abajo en el log, Asterisk entra en:
+
+typescript
+Copiar
+Editar
+-- Executing [s@macro-dial:30] ExecIf("...", "0?Set(ds=...)") in new stack
+-- Executing [s@macro-dial:31] Gosub("...", "dial-with-exten,,1()") in new stack
+-- Executing [s@dial-with-exten:1] Return("...", "") in new stack
+-- Executing [s@macro-dial:32] Set("...", "DIALSTATUS=") in new stack
+-- Executing [s@macro-dial:34] NoOp("...", "Returning since nobody answered")
+-- Executing [s@macro-dial:35] Return("...", "") in new stack
+💥 Este flujo indica que:
+
+Asterisk creyó que no había internos para llamar, o ringall estaba vacío.
+
+No entró al paso donde efectivamente se marca (Dial(${ds})).
+
+Esto puede pasar si ringall (la variable que se llena con los internos a marcar) se queda vacía.
+
+✅ Solución: Forzar ring group interno (aunque sea uno solo)
+FreePBX espera que los destinos de macro-dial estén como si fueran una lista tipo ring group. En tu caso, al llamar con 301, si no lo pasás correctamente o falta algún dato en la base de datos interna, puede que ringall quede vacío.
+
+🔧 Recomendado:
+Usá 301- en vez de 301 como tercer argumento:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301-))
+El guion (-) le indica a dialparties.agi que es parte de un ring group.
+
+Esto rellena correctamente la variable ringall.
+
+🔁 Alternativa avanzada: invocar dialparties.agi manualmente
+Si querés reemplazar por completo macro-dial, podrías directamente construir tu lógica de llamada a la secretaria sin usar ese macro (opcional).
+
+✅ Resumen de pasos sugeridos
+Cambiá la línea actual:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301))
+por:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301-))
+(Opcional) Agregá un NoOp para verificar si ds se llena:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,NoOp(ds=${ds})
+Verificá en los nuevos logs que aparezca algo como:
+
+scss
+Copiar
+Editar
+-- Executing [s@macro-dial:36] Dial(PJSIP/301/sip:301@...,20,HhTtr)
+¿Querés que te arme una versión de este módulo con bypass de macro-dial (es decir, con un Dial() directo)? Es útil si no querés depender del flujo interno de FreePBX.
+
+
+
+
+
+
+
+
+Tú dijiste:
+-- Executing [300@from-internal:6] NoOp("PJSIP/501-0000002c", "Bosssecretary: Executing module") in new stack
+    -- Executing [300@from-internal:7] Set("PJSIP/501-0000002c", "PJSIP_HEADER(add,Alert-Info)=<http://nohost>;info=alert-group;x-line-id=0") in new stack
+    -- Executing [300@from-internal:8] NoOp("PJSIP/501-0000002c", "RINGTIMER=, DIAL_OPTIONS=HhTtr") in new stack
+    -- Executing [300@from-internal:9] Gosub("PJSIP/501-0000002c", "macro-dial,s,1(20,HhTtr,301-)") in new stack
+    -- Executing [s@macro-dial:1] NoOp("PJSIP/501-0000002c", "Blind Transfer: , Attended Transfer: , User: 501, Alert Info: ") in new stack
+    -- Executing [s@macro-dial:2] Set("PJSIP/501-0000002c", "__CRM_SOURCE=501") in new stack
+    -- Executing [s@macro-dial:3] ExecIf("PJSIP/501-0000002c", "1?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:4] ExecIf("PJSIP/501-0000002c", "0?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:5] ExecIf("PJSIP/501-0000002c", "0?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:6] ExecIf("PJSIP/501-0000002c", "0?Set(CHANNEL(musicclass)=)") in new stack
+    -- Executing [s@macro-dial:7] AGI("PJSIP/501-0000002c", "agi://127.0.0.1/dialparties.agi") in new stack
+ agi://127.0.0.1/dialparties.agi: Starting New Dialparties.agi
+ agi://127.0.0.1/dialparties.agi: Caller ID name is '501' number is '501'
+ agi://127.0.0.1/dialparties.agi: CW Ignore is:
+ agi://127.0.0.1/dialparties.agi: CF Ignore is:
+ agi://127.0.0.1/dialparties.agi: CW IN_USE/BUSY is: 1
+ agi://127.0.0.1/dialparties.agi: Ringgroup confirm is  :
+        > agi://127.0.0.1/dialparties.agi: USE_CONFIRMATION:  'FALSE'
+        > agi://127.0.0.1/dialparties.agi: RINGGROUP_INDEX:   ''
+ agi://127.0.0.1/dialparties.agi: Methodology of ring is  'none'
+    -- agi://127.0.0.1/dialparties.agi: Added extension 301 to extension map
+    -- agi://127.0.0.1/dialparties.agi: Added extension  to extension map
+    -- agi://127.0.0.1/dialparties.agi: Extension 301 cf is disabled
+    -- agi://127.0.0.1/dialparties.agi: Extension  cf is disabled
+    -- agi://127.0.0.1/dialparties.agi: Extension 301 do not disturb is disabled
+    -- agi://127.0.0.1/dialparties.agi: Extension  do not disturb is disabled
+       > agi://127.0.0.1/dialparties.agi: extnum 301 has:  cw: 1; hascfb: 0 [] hascfu: 0 []
+ agi://127.0.0.1/dialparties.agi: EXTENSION_STATE: 0 (NOT_INUSE)
+  == agi://127.0.0.1/dialparties.agi: Discovered PJSIP Endpoint PJSIP/301
+    -- agi://127.0.0.1/dialparties.agi: Ended up with real PJSIP Dial string PJSIP/301/sip:301@10.1.2.168:63086;ob
+    -- agi://127.0.0.1/dialparties.agi: dbset CALLTRACE/301 to 501
+       > agi://127.0.0.1/dialparties.agi: extnum  has:  cw: 0; hascfb: 0 [] hascfu: 0 []
+[2025-07-11 12:33:47] WARNING[13250][C-0000001e]: func_extstate.c:117 extstate_read: EXTENSION_STATE requires an extension
+ agi://127.0.0.1/dialparties.agi: EXTENSION_STATE: 4 ()
+ agi://127.0.0.1/dialparties.agi: Extension  has ExtensionState: 4
+    -- agi://127.0.0.1/dialparties.agi: Checking CW and CFB status for extension
+ agi://127.0.0.1/dialparties.agi: Extension  is not available to be called
+    -- agi://127.0.0.1/dialparties.agi: Filtered ARG3: 301
+ agi://127.0.0.1/dialparties.agi: RVOL_MODE ''
+ agi://127.0.0.1/dialparties.agi: RVOL is:
+ agi://127.0.0.1/dialparties.agi: RVOLPARENT is:
+    -- <PJSIP/501-0000002c>AGI Script agi://127.0.0.1/dialparties.agi completed, returning 0
+    -- Executing [s@macro-dial:8] GotoIf("PJSIP/501-0000002c", "1?normdial") in new stack
+    -- Goto (macro-dial,s,11)
+    -- Executing [s@macro-dial:11] NoOp("PJSIP/501-0000002c", "Returned from dialparties with groups to dial") in new stack
+    -- Executing [s@macro-dial:12] NoOp("PJSIP/501-0000002c", "ringall array  ") in new stack
+    -- Executing [s@macro-dial:13] NoOp("PJSIP/501-0000002c", "ds= PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtr ") in new stack
+    -- Executing [s@macro-dial:14] NoOp("PJSIP/501-0000002c", "dsextra= ") in new stack
+    -- Executing [s@macro-dial:15] Set("PJSIP/501-0000002c", "ds=PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtr") in new stack
+    -- Executing [s@macro-dial:16] NoOp("PJSIP/501-0000002c", "ds= PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtr") in new stack
+    -- Executing [s@macro-dial:17] Set("PJSIP/501-0000002c", "__FMGL_DIAL=") in new stack
+    -- Executing [s@macro-dial:18] Set("PJSIP/501-0000002c", "LOOPCNT=1") in new stack
+    -- Executing [s@macro-dial:19] Set("PJSIP/501-0000002c", "ITER=1") in new stack
+    -- Executing [s@macro-dial:20] Set("PJSIP/501-0000002c", "__EXTTOCALL=301") in new stack
+    -- Executing [s@macro-dial:21] Set("PJSIP/501-0000002c", "__MCEXTTOCALL=301") in new stack
+    -- Executing [s@macro-dial:22] NoOp("PJSIP/501-0000002c", "Working with 301") in new stack
+    -- Executing [s@macro-dial:23] ExecIf("PJSIP/501-0000002c", "0?Set(HASH(__SIPHEADERS,Alert-Info)=Normal;volume=)") in new stack
+    -- Executing [s@macro-dial:24] ExecIf("PJSIP/501-0000002c", "0?Set(HASH(__SIPHEADERS,Alert-Info)=Normal;volume=)") in new stack
+    -- Executing [s@macro-dial:25] Set("PJSIP/501-0000002c", "ITER=2") in new stack
+    -- Executing [s@macro-dial:26] GotoIf("PJSIP/501-0000002c", "0?ndloopbegin") in new stack
+    -- Executing [s@macro-dial:27] Gosub("PJSIP/501-0000002c", "macro-dial-ringall-predial-hook,s,1()") in new stack
+    -- Executing [s@macro-dial-ringall-predial-hook:1] Return("PJSIP/501-0000002c", "") in new stack
+    -- Executing [s@macro-dial:28] ExecIf("PJSIP/501-0000002c", "0?Set(CWRING=r(callwaiting)):Set(CWRING=)") in new stack
+    -- Executing [s@macro-dial:29] ExecIf("PJSIP/501-0000002c", "0?Set(RGFMDIAL=301):Set(RGFMDIAL=)") in new stack
+    -- Executing [s@macro-dial:30] ExecIf("PJSIP/501-0000002c", "0?Set(ds=PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtrg)") in new stack
+    -- Executing [s@macro-dial:31] Gosub("PJSIP/501-0000002c", "dial-with-exten,,1()") in new stack
+    -- Executing [s@dial-with-exten:1] Return("PJSIP/501-0000002c", "") in new stack
+    -- Executing [s@macro-dial:32] Set("PJSIP/501-0000002c", "DIALSTATUS=") in new stack
+    -- Executing [s@macro-dial:33] GosubIf("PJSIP/501-0000002c", "0?,1()") in new stack
+    -- Executing [s@macro-dial:34] NoOp("PJSIP/501-0000002c", "Returning since nobody answered") in new stack
+    -- Executing [s@macro-dial:35] Return("PJSIP/501-0000002c", "") in new stack
+    -- Executing [300@from-internal:10] NoOp("PJSIP/501-0000002c", "ds=PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtr") in new stack
+    -- Executing [300@from-internal:11] Hangup("PJSIP/501-0000002c", "") in new stack
+  == Spawn extension (from-internal, 300, 11) exited non-zero on 'PJSIP/501-0000002c'
+    -- Executing [h@from-internal:1] Gosub("PJSIP/501-0000002c", "macro-hangupcall,s,1") in new stack
+    -- Executing [s@macro-hangupcall:1] Set("PJSIP/501-0000002c", "__MCVMSTATUS=") in new stack
+    -- Executing [s@macro-hangupcall:2] Gosub("PJSIP/501-0000002c", "app-missedcall-hangup,s,1()") in new stack
+    -- Executing [s@app-missedcall-hangup:1] NoOp("PJSIP/501-0000002c", "Dialed: s") in new stack
+    -- Executing [s@app-missedcall-hangup:2] NoOp("PJSIP/501-0000002c", "Caller: 501") in new stack
+    -- Executing [s@app-missedcall-hangup:3] GotoIf("PJSIP/501-0000002c", "0?exit") in new stack
+    -- Executing [s@app-missedcall-hangup:4] Set("PJSIP/501-0000002c", "EXTENNUM=s") in new stack
+    -- Executing [s@app-missedcall-hangup:5] Set("PJSIP/501-0000002c", "FEXTENNUM=s") in new stack
+    -- Executing [s@app-missedcall-hangup:6] GotoIf("PJSIP/501-0000002c", "0?exit") in new stack
+    -- Executing [s@app-missedcall-hangup:7] AGI("PJSIP/501-0000002c", "agi://127.0.0.1/missedcallnotify.php,s,,s,0,,PJSIP/501-0000002c,,,,") in new stack
+    -- <PJSIP/501-0000002c>AGI Script agi://127.0.0.1/missedcallnotify.php completed, returning 0
+    -- Executing [s@app-missedcall-hangup:8] Return("PJSIP/501-0000002c", "") in new stack
+    -- Executing [s@macro-hangupcall:3] UserEvent("PJSIP/501-0000002c", "MES,RTPAUDIOQOSMESBRIDGED:,RTPAUDIOQOSMES:") in new stack
+    -- Executing [s@macro-hangupcall:4] GotoIf("PJSIP/501-0000002c", "1?theend") in new stack
+    -- Goto (macro-hangupcall,s,6)
+    -- Executing [s@macro-hangupcall:6] ExecIf("PJSIP/501-0000002c", "0?Set(CDR(recordingfile)=)") in new stack
+    -- Executing [s@macro-hangupcall:7] Hangup("PJSIP/501-0000002c", "") in new stack
+
+
+ChatGPT Plus
+Gracias por compartir el nuevo log. Ahora el problema está perfectamente claro.
+
+⚠️ PROBLEMA ACTUAL:
+El log dice:
+
+typescript
+Copiar
+Editar
+-- Executing [s@macro-dial:32] Set("PJSIP/501-0000002c", "DIALSTATUS=") in new stack
+-- Executing [s@macro-dial:34] NoOp("PJSIP/501-0000002c", "Returning since nobody answered")
+Nunca llama.
+Aunque el dial string ds está bien armado:
+
+ini
+Copiar
+Editar
+ds= PJSIP/301/sip:301@10.1.2.168:63086;ob,20,HhTtr
+Pero NO HACE EL DIAL().
+
+🧠 ¿Por qué no llama aunque ds está bien?
+Porque FreePBX depende de que ringall (lista de internos a marcar) contenga al menos un interno válido, y dialparties.agi está recibiendo un destino vacío adicional.
+
+Fijate en este fragmento:
+
+pgsql
+Copiar
+Editar
+agi://127.0.0.1/dialparties.agi: Added extension 301 to extension map
+agi://127.0.0.1/dialparties.agi: Added extension  to extension map
+Ese segundo "extension " (vacío) es el problema.
+
+Y más abajo:
+
+pgsql
+Copiar
+Editar
+agi://127.0.0.1/dialparties.agi: Extension  is not available to be called
+💥 Esa entrada vacía hace que ringall quede inconsistente.
+
+✅ SOLUCIÓN
+No uses "301-", usá directamente "301".
+
+La causa del error es ese guion final, que al parecer FreePBX lo interpreta como "lista terminada en coma", y le suma un destino vacío.
+
+Entonces:
+ANTES (incorrecto):
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301-))
+DESPUÉS (correcto):
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Gosub(macro-dial,s,1(20,HhTtr,301))
+Aunque antes parecía que no entraba al Dial() con "301", el problema estaba probablemente en el flujo posterior (quizás lo habías corregido parcialmente o la secretaria no estaba disponible en ese momento). Ahora, como 301 responde bien, esto funcionará.
+
+🧪 ¿Querés forzar a que sí o sí marque?
+Si querés asegurarte sin depender de macro-dial, podés hacer este reemplazo directo:
+
+asterisk
+Copiar
+Editar
+exten => 300,n,Dial(PJSIP/301,20,HhTtr)
+Pero ya que estás trabajando dentro del módulo BossSecretary, es mejor mantener compatibilidad con FreePBX y macro-dial, siempre que funcione.
+
+¿Querés que al no contestar la 301 se derive a otra extensión o correo de voz? También se puede agregar eso después del macro-dial.
+
+
+
+
+
+
+
+
+Tú dijiste:
+en el codigo del modulo, como cambio $ext->add($ctx_bsc, $extension, '', new ext_sipaddheader("Alert-Info", "<http://nohost>\;info=alert-group\;x-line-id=0")); para que use pjsip?
+
+
+ChatGPT Plus
+En FreePBX, si querés que tu módulo agregue un header personalizado para llamadas con PJSIP, NO debés usar ext_sipaddheader, porque eso es para canales SIP (chan_sip), que están obsoletos.
+
+✅ En su lugar, usá:
+php
+Copiar
+Editar
+new ext_set("PJSIP_HEADER(add,Alert-Info)", "<http://nohost>;info=alert-group;x-line-id=0")
+🔁 Entonces, reemplazá:
+php
+Copiar
+Editar
+$ext->add($ctx_bsc, $extension, '', new ext_sipaddheader("Alert-Info", "<http://nohost>\;info=alert-group\;x-line-id=0"));
+Por esto:
+
+php
+Copiar
+Editar
+$ext->add($ctx_bsc, $extension, '', new ext_set("PJSIP_HEADER(add,Alert-Info)", "<http://nohost>;info=alert-group;x-line-id=0"));
+📌 Aclaración sobre los ;
+En el ext_sipaddheader() usabas \; para escapar porque se trataba de un string SIP literal.
+
+En ext_set("PJSIP_HEADER(...)"), NO es necesario escaparlos, porque es un comando Asterisk Set() que interpreta correctamente los ;.
+
+¿Querés que te muestre cómo quedaría el bloque completo de código del módulo con eso aplicado correctamente?
+
+
+
+
+
+
+
+
+Tú dijiste:
+tengo 2 centrales, una con los numeros 300 (jefe), 301 (secretaria) y otra con el numero 1851. Cuando llamo al 301 lo hace sin problema (pongo un prefijo #44 para llamar a la primera central), pero cuando llamo al 300 da ocupado y no parece ejecutarse el modulo
+
+
+ChatGPT Plus
+Gracias por el contexto. El hecho de que llamar al 301 (secretaria) desde la otra central funcione usando #44, pero que al 300 (jefe) te dé ocupado y no dispare el módulo BossSecretary, sugiere que:
+
+🔍 El problema está en cómo llega la llamada al 300 desde la otra central:
+Tu módulo probablemente está colgado del contexto from-internal, que es el usado cuando discás localmente, pero las llamadas entre centrales suelen entrar por otro contexto, como from-trunk, from-pstn, from-sip-external, o algo personalizado.
+
+✅ Soluciones
+✅ 1. Verificá el contexto de entrada
+Hacé una llamada desde la central remota al 300, y en la consola de Asterisk poné:
+
+bash
+Copiar
+Editar
+core set verbose 10
+core set debug 10
+y observá algo como esto:
+
+text
+Copiar
+Editar
+-- Executing [300@from-trunk:1] ...
+Lo importante es la parte 300@from-XXXX, porque eso indica el contexto desde donde se ejecuta.
+
+✅ 2. Asegurate de colgar el módulo en todos los contextos relevantes
+Si tu módulo solo se engancha en from-internal, agregá esta línea también para from-trunk o el que corresponda:
+
+php
+Copiar
+Editar
+$ext->add('from-trunk', '300', 1, new ext_goto('from-internal', '300', '1'));
+O directamente incluí tu contexto personalizado en from-trunk:
+
+ini
+Copiar
+Editar
+[from-trunk]
+include => bosssecretary
+✅ 3. Verificá que el número esté bien mapeado
+También puede que esté cayendo directamente en el ext-local, ignorando tu lógica. Si usás rutas entrantes con coincidencia de DID, asegurate de que la llamada al 300 realmente pase por donde está colgado tu código.
+
+✅ 4. Chequeá qué dice la consola cuando discás al 300
+Buscá algo como:
+
+text
+Copiar
+Editar
+-- Executing [300@from-internal:6] NoOp("... Bosssecretary: Executing module") ...
+Si eso no aparece, el módulo no se está ejecutando. Necesitás modificar el dialplan de entrada para que pase por tu contexto.
+
+✅ 5. ¿Tenés Time Conditions u otro override?
+Si hay una Time Condition o IVR que está interceptando llamadas al 300, puede que esté dirigiendo la llamada directo al destino sin pasar por tu código.
+
+¿Qué podés hacer ahora?
+Llamá desde la central remota al 300.
+
+Observá en consola Asterisk qué contexto está usando (300@???).
+
+Mostrame esa línea y te digo exactamente cómo enganchar tu módulo ahí.
+
+¿Te gustaría que prepare un extensions_custom.conf con una lógica para derivar correctamente a bosssecretary desde cualquier entrada a 300?
+
+
+
+
+
+
+
+
+Tú dijiste:
+el contexto es from-pstn
+
+
+ChatGPT Plus
+Perfecto, gracias. Entonces tu módulo está colgado en from-internal, pero cuando llamás desde la otra central, la llamada entra por from-pstn, por lo tanto el módulo bosssecretary nunca se ejecuta.
+
+✅ Solución
+Tenés dos formas de redirigir el tráfico entrante hacia donde sí se ejecuta el módulo:
+
+🔁 Opción 1: Redirigir el from-pstn al from-internal
+En tu extensions_custom.conf, agregá esto:
+
+ini
+Copiar
+Editar
+[from-pstn]
+exten => 300,1,Goto(from-internal,300,1)
+Esto hace que cualquier llamada al 300 que entre por from-pstn salte directamente a from-internal,300,1, donde está tu lógica de BossSecretary.
+
+Ventaja: No duplicás lógica.
+Desventaja: Si en algún momento querés un comportamiento distinto para llamadas externas, no podés.
+
+🧱 Opción 2: Inyectar la lógica directamente en from-pstn
+Si querés que el módulo se ejecute incluso sin pasar por from-internal, podés incluir tu contexto ahí también:
+
+ini
+Copiar
+Editar
+[from-pstn]
+include => bosssecretary
+Y asegurate de que en tu módulo tengas algo como:
+
+php
+Copiar
+Editar
+$ext->add('bosssecretary', '300', 1, new ext_noop('Bosssecretary: Executing module'));
+// ... lógica del módulo ...
+📌 Recomendación
+La opción 1 (Goto a from-internal) es más clara y no requiere replicar lógica. Es lo que más se usa en producción, por ejemplo:
+
+ini
+Copiar
+Editar
+[from-pstn]
+exten => 300,1,NoOp(Call from remote PBX)
+ same => n,Goto(from-internal,300,1)
+📞 ¿Querés que también funcione con 301?
+Si algún día querés que 301 (la secretaria) también tenga lógica similar desde otras centrales, hacé lo mismo:
+
+ini
+Copiar
+Editar
+exten => 301,1,Goto(from-internal,301,1)
+¿Querés que revise tu install.php para que automáticamente cree esta redirección si el módulo lo instala?
+
+
+
+
+
+
+
+
+Tú dijiste:
+si, que deberia pasarte?
+
+
+ChatGPT Plus
+Genial. Para ayudarte a que el install.php de tu módulo bosssecretary:
+
+inserte la redirección de from-pstn → from-internal,
+
+y lo haga de forma segura sin romper la lógica de otras extensiones,
+
+necesito que me pases tu archivo install.php completo, o al menos la parte donde agregás las extensiones o modificás el dialplan. Busco algo como esto:
+
+php
+Copiar
+Editar
+$ext = $GLOBALS['ext']; // o similar
+$ctx_bsc = 'bosssecretary';
+// luego llamadas a $ext->add(...)
+Si querés adelantarlo, podés buscarme:
+¿Dónde definís los contextos? ($ctx_bsc = ...)
+
+¿Dónde hacés el add al $ext?
+
+¿Dónde está el featurecode si lo usás?
+
+Mientras tanto, te dejo el fragmento base que podríamos usar:
+php
+Copiar
+Editar
+// Redirige llamadas de 'from-pstn' al 300 hacia 'from-internal'
+$ext->add('from-pstn', '300', 1, new ext_goto('from-internal,300,1'));
+Esto lo podés agregar al final del install() o do_install().
+
+Con el archivo completo, puedo integrarlo correctamente, evitar duplicaciones, y asegurarme de que no se pise si el usuario lo reinstala. ¿Querés subirlo o pegarlo acá?
+
+
+
+
+
+
+
+
+Tú dijiste:
+install.php:
+
+<?php
+
+
+$fcc = new featurecode('bosssecretary', 'bsc_toggle');
+$fcc->setDescription('Bosssecretary Toggle');
+$fcc->setDefault('*152');
+$fcc->update();
+unset($fcc);
+
+$fcc = new featurecode('bosssecretary', 'bsc_on');
+$fcc->setDescription('Bosssecretary On');
+$fcc->setDefault('*153');
+$fcc->update();
+unset($fcc);
+
+
+$fcc = new featurecode('bosssecretary', 'bsc_off');
+$fcc->setDescription('Bosssecretary Off');
+$fcc->setDefault('*154');
+$fcc->update();
+unset($fcc);
+
+
+
+$sql = " DROP TABLE IF EXISTS  bosssecretary_config";
+$check = $db->query($sql);
+if(DB::IsError($check)) {
+	die_freepbx("Can not drop bosssecretary_config table");
+}
+
+ 
+
+
+$sql = "
+CREATE TABLE IF NOT EXISTS bosssecretary_chief (
+  id_group int(10) unsigned NOT NULL,
+  chief_extension varchar(20) NOT NULL,
+  PRIMARY KEY (id_group,chief_extension)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+";
+$check = $db->query($sql);
+if(DB::IsError($check)) {
+	die_freepbx("Can not create bosssecretary_chief table");
+}
+
+$sql = "
+CREATE TABLE IF NOT EXISTS bosssecretary_boss (
+  id_group int(10) unsigned NOT NULL,
+  boss_extension varchar(20) NOT NULL,
+  PRIMARY KEY (id_group,boss_extension)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+";
+$check = $db->query($sql);
+if(DB::IsError($check)) {
+        die_freepbx("Can not create bosssecretary_boss table");
+}
+
+
+
+$sql = "
+CREATE TABLE IF NOT EXISTS bosssecretary_group (
+  id_group int(10) unsigned NOT NULL AUTO_INCREMENT,
+  label varchar(20) NOT NULL,
+  PRIMARY KEY (id_group)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+";
+$check = $db->query($sql);
+if(DB::IsError($check)) {
+	die_freepbx("Can not create bosssecretary_group table");
+}
+
+
+
+$sql = "SHOW COLUMNS FROM bosssecretary_group";
+$results = $db->getAll($sql);
+if(DB::IsError($results)) {
+	die_freepbx("Can not check bosssecretary_group table");
+}
+
+foreach ($results as $column)
+{
+    if (!isset($column["Field"])) {
+        continue;
+    }
+
+    $fieldName = trim(strtolower($column["Field"]));
+
+    if ($fieldName == "dring") {
+        $sql = "ALTER TABLE bosssecretary_group DROP ".$column["Field"]." ";
+        $check = $db->query($sql);
+        if(DB::IsError($check)) {
+            die_freepbx("Can not alter bosssecretary_group table");
+        }
+    }
+    if ($fieldName == "ringtime") {
+        $sql = "ALTER TABLE bosssecretary_group DROP ".$column["Field"]." ";
+        $check = $db->query($sql);
+        if(DB::IsError($check)) {
+            die_freepbx("Can not alter bosssecretary_group table");
+        }
+    }
+}
+
+$sql = "ALTER TABLE bosssecretary_group MODIFY id_group INT(10) NOT NULL";
+$results = $db->query($sql);
+if(DB::IsError($results)) {
+	die_freepbx("Can not modify bosssecretary_group.id_group column");
+}
+
+$sql = "
+CREATE TABLE IF NOT EXISTS bosssecretary_secretary (
+  id_group int(11) NOT NULL,
+  secretary_extension varchar(20) NOT NULL,
+  PRIMARY KEY (id_group,secretary_extension)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+";
+$check = $db->query($sql);
+if(DB::IsError($check)) {
+	die_freepbx("Can not create bosssecretary_secretary table");
+}
+
+
+$sql = "
+CREATE TABLE IF NOT EXISTS bosssecretary_group_numbers_free (
+  group_number int(10) unsigned NOT NULL,
+  PRIMARY KEY (group_number)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+";
+
+$check = $db->query($sql);
+if(DB::IsError($check)) {
+	die_freepbx("Can not create bosssecretary_group_numbers_free");
+}
+
+
+
+?>
+
+
+ChatGPT Plus
+Gracias, Yoko. Tu archivo install.php actualmente crea los feature codes y las tablas necesarias, pero no modifica el dialplan Asterisk (o sea, no agrega ningún contexto, ni dialplan dinámico con $ext->add(...)).
+
+✅ ¿Qué queremos lograr?
+Querés que cuando una llamada externa entre por from-pstn y marque, por ejemplo, el 300, se dispare tu lógica del módulo bosssecretary, que está normalmente en el contexto from-internal.
+
+🔧 Solución
+Agregá al final de tu install.php este bloque para redirigir las llamadas entrantes del 300 desde el contexto from-pstn hacia el contexto from-internal:
+
+php
+Copiar
+Editar
+$ext = $GLOBALS['ext']; // acceso al generador de dialplan de FreePBX
+$ext->add('from-pstn', '300', '', new ext_goto('from-internal,300,1'));
+📌 Esto hace que cuando alguien llame al 300 desde afuera (from-pstn), se redirija automáticamente a from-internal,300,1, donde vos tenés la lógica del módulo (como ext_sipaddheader, etc.).
+
+🛠 Posible mejora adicional (opcional)
+Si vas a tener varios jefes (ej: 300, 305, 310...), podés hacer algo más dinámico, como usar una macro o custom context (bosssecretary-inbound) y ahí hacer el enrutamiento. Pero para una solución puntual, con 300 basta con lo de arriba.
+
+📦 Resultado Final
+Agregá esto al final del install.php:
+
+php
+Copiar
+Editar
+$ext = $GLOBALS['ext'];
+$ext->add('from-pstn', '300', '', new ext_goto('from-internal,300,1'));
+¿Querés que te ayude a extenderlo para múltiples internos también (301, etc.)?
+
+
+
+
+
+
+
+
+Tú dijiste:
+quiero que funcione para jefes de distintos numeros
+
+
+ChatGPT Plus
+Perfecto. Entonces lo ideal es no hardcodear el número 300, sino derivar cualquier número que sea un jefe a tu contexto from-internal (donde ya ejecutás la lógica del módulo bosssecretary).
+
+✅ ¿Cómo hacerlo dinámico?
+Ya tenés una tabla bosssecretary_boss donde están listadas las extensiones de los jefes (boss_extension). Vamos a usar esa tabla para generar una entrada en el contexto from-pstn para cada jefe registrado.
+
+🔧 Agregá esto al final de tu install.php:
+php
+Copiar
+Editar
+$ext = $GLOBALS['ext'];
+
+// Buscar todas las extensiones de jefes
+$sql = "SELECT boss_extension FROM bosssecretary_boss";
+$results = $db->getAll($sql, DB_FETCHMODE_ASSOC);
+
+if (DB::IsError($results)) {
+    die_freepbx("Error al obtener las extensiones de jefes");
+}
+
+foreach ($results as $row) {
+    $boss_ext = trim($row['boss_extension']);
+    if ($boss_ext !== '') {
+        $ext->add('from-pstn', $boss_ext, '', new ext_goto("from-internal,{$boss_ext},1"));
+    }
+}
+💡 ¿Qué hace este código?
+Lee de la tabla bosssecretary_boss todos los internos marcados como jefes.
+
+Por cada uno, crea una entrada en el contexto from-pstn para redirigir al contexto from-internal, donde ya está tu lógica.
+
+✅ Requisitos
+Para que esto funcione:
+
+Los internos jefes (300, 305, etc.) deben estar correctamente cargados en bosssecretary_boss.
+
+La llamada entrante debe ir al context=from-pstn (como estás haciendo ahora).
+
+El dialplan de FreePBX debe regenerarse luego de instalar el módulo:
+
+Ejecutá:
+
+bash
+Copiar
+Editar
+fwconsole reload
+¿Querés que también funcione para llamadas entrantes que vengan con prefijos (como #44) o solo para las que terminan en un interno conocido?
+
+
+
+
+
+
+
+
+Tú dijiste:
+cuando hago fwconsole reload me tira:
+In functions.inc.php line 73:
+
+  Undefined array key "chiefs"
+
+
+ChatGPT Plus
+Ese error:
+
+pgsql
+Copiar
+Editar
+In functions.inc.php line 73:
+  Undefined array key "chiefs"
+indica que en tu archivo functions.inc.php estás intentando acceder al índice "chiefs" de un array que no lo tiene definido aún.
+
+🔍 Diagnóstico
+Es probable que estés haciendo algo como esto:
+
+php
+Copiar
+Editar
+$someArray['chiefs'][] = $value;
+Pero nunca inicializaste $someArray['chiefs'] como un array antes. Entonces PHP lanza un error.
+
+✅ Solución
+Antes de usar ese índice, asegurate de inicializarlo. Por ejemplo:
+
+php
+Copiar
+Editar
+if (!isset($someArray['chiefs'])) {
+    $someArray['chiefs'] = array();
+}
+$someArray['chiefs'][] = $value;
+O de forma más compacta en PHP moderno:
+
+php
+Copiar
+Editar
+$someArray['chiefs'][] = $value; // Error si 'chiefs' no existe
+
+// Solución:
+$someArray['chiefs'] ??= [];
+$someArray['chiefs'][] = $value;
+🛠 ¿Querés que te revise el functions.inc.php?
+Si me pegás las primeras ~100 líneas del archivo functions.inc.php de tu módulo (o al menos el bloque que incluye la línea 73), te indico exactamente qué y cómo corregirlo.
+
+
+
+
+
+
+
+
+Tú dijiste:
+primeras 100 lineas:
+<?php
+
+
+/********************************************************
+*														*
+* 					API FUNCTIONS						*
+*														*
+********************************************************/
+
+
+define("BOSSSECRETARY_PARAM_PREFIX", "bsgroup-");
+define("BOSSSECRETARY_LABEL_DEFAULT", "Group ");
+define("BOSSSECRETARY_CONTEXT", "ext-bosssecretary");
+define("BOSSSECRETARY_MACRO_LOCKED", "macro-bosssecretary-locked");
+define("BOSSSECRETARY_MACRO_LOCKED_NAME", "bosssecretary-locked");
+define("BOSSSECRETARY_TOGGLE", "app-bosssecretary-toggle");
+define("BOSSSECRETARY_ON", "app-bosssecretary-on");
+define("BOSSSECRETARY_OFF", "app-bosssecretary-off");
+define("BOSSSECRETARY_HINTS", "app-bosssecretary-hints");
+
+
+function bosssecretary_get_config($engine){
+	global $db;
+	global $ext;
+	global $amp_conf;
+	global $astman;
+
+	switch($engine) {
+		case "asterisk":
+
+
+
+
+			$fcc_toggle = bosssecretary_get_fcc_toggle();
+			$fcc_on  = bosssecretary_get_fcc_on();
+			$fcc_off  = bosssecretary_get_fcc_off();
+			$groups = bosssecretary_get_all_groups();
+
+			$ctx_app_toggle =   BOSSSECRETARY_TOGGLE;
+			$ctx_app_on     =   BOSSSECRETARY_ON;
+			$ctx_app_off    =   BOSSSECRETARY_OFF;
+			$ctx_app_hints	=	BOSSSECRETARY_HINTS;
+			$ctx_bsc		=	BOSSSECRETARY_CONTEXT;
+
+			$ext->addInclude('from-internal-additional', $ctx_bsc);
+			$ext->addInclude($ctx_bsc, $ctx_app_toggle);
+			$ext->addInclude($ctx_bsc, $ctx_app_on);
+			$ext->addInclude($ctx_bsc, $ctx_app_off);
+			$ext->addInclude($ctx_bsc, $ctx_app_hints);
+
+			if (!empty($groups))
+			{
+
+				$astman->database_deltree("bosssecretary/group");
+				$groups = bosssecretary_to_group($groups);
+
+
+
+				foreach ($groups as $group)
+				{
+					$id_group = $group["id_group"];
+
+					foreach ($group["bosses"] as $extension)
+					{
+						$astman->database_put("bosssecretary","group/$id_group/member/$extension", "boss");
+						$astman->database_put("bosssecretary","group/member/$extension", $id_group);
+					}
+					foreach ($group["secretaries"] as $extension)
+					{
+						$astman->database_put("bosssecretary","group/$id_group/member/$extension", "secretary");
+						$astman->database_put("bosssecretary","group/member/$extension", $id_group);
+					}
+					foreach ($group["chiefs"] as $extension)
+					{
+						$astman->database_put("bosssecretary","group/$id_group/member/$extension", "chief");
+					}
+				}
+				// :::: BSC Off [app-bosssecretary-on] ::::
+
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_noop("Bosssecretary on starts..."));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_answer());
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_macro ('user-callerid'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_wait ('2'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/member/${AMPUSER})}','on','exit'));
+				$ext->add($ctx_app_on, $fcc_on, 'on', new ext_setvar('GROUP','${DB(bosssecretary/group/member/${AMPUSER})}'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_dbdel('bosssecretary/group/${GROUP}/locked'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_setvar('STATE','NOT_INUSE'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_gosub('1','sstate',$ctx_app_on));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_playback('activated'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_hangup());
+				$ext->add($ctx_app_on, $fcc_on, 'exit', new ext_noop('${AMPUSER} doesn\\\'t belongs bosssecretary group'));
+				$ext->add($ctx_app_on, $fcc_on, '', new ext_hangup());
+				$ext->add($ctx_app_on, 'sstate', '', new ext_setvar('DEVICE_STATE(Custom:BSC${GROUP})','${STATE}'));
+				$ext->add($ctx_app_on, 'sstate', 'return', new ext_return());
+
+
+				// :::: BSC Off [app-bosssecretary-off] ::::
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_noop("Bosssecretary off starts..."));
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_answer());
+				$ext->add($ctx_app_off, $fcc_off, '', new ext_macro ('user-callerid'));
+
+
+ChatGPT Plus
+Gracias. El error Undefined array key "chiefs" en la línea 73 proviene de esta parte del código:
+
+php
+Copiar
+Editar
+foreach ($group["chiefs"] as $extension)
+Eso ocurre si el array $group no tiene definido el índice "chiefs" en alguna de sus iteraciones.
+
+✅ Solución
+Antes de hacer foreach ($group["chiefs"] as $extension), asegurate de que la clave "chiefs" exista y sea un array. Podés cambiar este bloque así:
+
+php
+Copiar
+Editar
+if (isset($group["chiefs"]) && is_array($group["chiefs"])) {
+	foreach ($group["chiefs"] as $extension) {
+		$astman->database_put("bosssecretary", "group/$id_group/member/$extension", "chief");
+	}
+}
+De esta forma evitás que el código falle si alguna fila de la tabla bosssecretary_group no tiene asociados "chiefs".
+
+📌 Recomendación adicional
+Revisá la función bosssecretary_to_group($groups) (que transforma los datos de la DB en estructuras como ["bosses" => [], "secretaries" => [], "chiefs" => []]) para asegurarte de que siempre devuelva todos los índices, aunque estén vacíos.
+
+Ejemplo dentro de bosssecretary_to_group:
+
+php
+Copiar
+Editar
+$group["bosses"] = $group["bosses"] ?? [];
+$group["secretaries"] = $group["secretaries"] ?? [];
+$group["chiefs"] = $group["chiefs"] ?? [];
+¿Querés que revise también esa función (bosssecretary_to_group) si me la pasás? Ahí podríamos asegurar de raíz que nunca falte "chiefs".
+
+
+
+
+
+
+
+
+Tú dijiste:
+function bosssecretary_to_group($groups)
+{
+	$newGroup = array();
+	foreach ($groups as $group)
+	{
+		if (!isset($newGroup[$group["id_group"]]))
+		{
+			$newGroup[$group["id_group"]] =  $group;
+			$newGroup[$group["id_group"]]["bosses"] = array();
+			// isset is so much faster than in_array ;)
+			$newGroup[$group["id_group"]]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+
+			$newGroup[$group["id_group"]]["secretaries"] = array();
+			// isset is so much faster than in_array ;)
+			$newGroup[$group["id_group"]]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+
+			if (isset($group["chief_extension"]))
+			{
+				$newGroup[$group["id_group"]]["chiefs"] = array();
+				$newGroup[$group["id_group"]]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+		else
+		{
+			// isset is so much faster than in_array ;)
+			if (!isset($newGroup[$group["id_group"]]["bosses"][$group["boss_extension"]]))
+			{
+				$newGroup[$group["id_group"]]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+			}
+			// isset is so much faster than in_array ;)
+			if (!isset($newGroup[$group["id_group"]]["secretaries"][$group["secretary_extension"]]))
+			{
+				$newGroup[$group["id_group"]]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+			}
+			if (!isset($newGroup[$group["id_group"]]["chiefs"][$group["chief_extension"]]))
+			{
+				$newGroup[$group["id_group"]]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+	}
+	return $newGroup;
+}
+
+
+ChatGPT Plus
+Perfecto. Gracias por compartir la función bosssecretary_to_group.
+
+El problema está claro: si un registro no tiene "chief_extension" definido, nunca se crea la clave "chiefs" en el array del grupo. Eso hace que luego, al iterar con $group["chiefs"], explote con Undefined array key.
+
+✅ Solución recomendada
+Forzá que el índice "chiefs" exista, aunque sea un array vacío.
+
+Podés hacer la función más robusta así:
+
+php
+Copiar
+Editar
+function bosssecretary_to_group($groups)
+{
+	$newGroup = array();
+
+	foreach ($groups as $group)
+	{
+		$id = $group["id_group"];
+
+		if (!isset($newGroup[$id]))
+		{
+			$newGroup[$id] = $group;
+			$newGroup[$id]["bosses"] = array();
+			$newGroup[$id]["secretaries"] = array();
+			$newGroup[$id]["chiefs"] = array(); // <-- Agregá esto siempre
+
+			if (!empty($group["boss_extension"])) {
+				$newGroup[$id]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+			}
+			if (!empty($group["secretary_extension"])) {
+				$newGroup[$id]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+			}
+			if (!empty($group["chief_extension"])) {
+				$newGroup[$id]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+		else
+		{
+			if (!empty($group["boss_extension"]) && !isset($newGroup[$id]["bosses"][$group["boss_extension"]])) {
+				$newGroup[$id]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+			}
+			if (!empty($group["secretary_extension"]) && !isset($newGroup[$id]["secretaries"][$group["secretary_extension"]])) {
+				$newGroup[$id]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+			}
+			if (!empty($group["chief_extension"]) && !isset($newGroup[$id]["chiefs"][$group["chief_extension"]])) {
+				$newGroup[$id]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+	}
+
+	return $newGroup;
+}
+✅ Resultado
+Con este cambio, ahora $group["chiefs"] siempre existe como array, y se evitará el error al hacer el foreach.
+
+¿Querés que te ayude a revisar también cómo están formadas las consultas SQL previas o la forma en que se construye $groups desde la base?
+
+
+
+
+
+
+
+
+Tú dijiste:
+no funciono lo de cambiar el install.php
+
+
+ChatGPT Plus
+Gracias por aclararlo. El error Undefined array key "chiefs" no depende del install.php, sino de cómo se arma el array $groups que llega a la función bosssecretary_to_group(...). Por eso el cambio debe hacerse directamente en esa función, no en el install.php.
+
+Revisemos paso a paso lo necesario:
+
+✅ 1. Tu error original:
+php
+Copiar
+Editar
+Undefined array key "chiefs"
+Esto ocurre cuando se accede a:
+
+php
+Copiar
+Editar
+foreach ($group["chiefs"] as $extension) {
+y el índice "chiefs" no fue definido.
+
+✅ 2. **El lugar donde se debe
+
+
+
+
+
+
+
+Tú dijiste:
+no funciono lo de cambiar el install.pho para cambiar el contexto de la llamada, o sea cuando cambie el extensions_custom funcionó pero yo quiero que lo haga siempre y no te ner que hardcodearlo
+
+
+ChatGPT Plus
+Perfecto, gracias por la aclaración. Lo que querés es modificar el contexto de las extensiones (por ejemplo del jefe) para que apunten automáticamente a tu módulo (ext-bosssecretary, por ejemplo), sin tener que editar a mano extensions_custom.conf o el plan de marcado manualmente. Te explico cómo lograr eso correctamente.
+
+🎯 Objetivo:
+Modificar el contexto de la extensión (300, jefe) desde tu módulo de forma dinámica para que vaya a tu lógica (ext-bosssecretary), sin tener que tocar extensions_custom.conf a mano.
+
+✅ Solución: Agregá una entrada en el contexto ext-local-custom
+FreePBX no recomienda editar from-internal, pero sí te permite usar ext-local-custom, que se incluye automáticamente para cada extensión.
+
+✅ Paso 1 – En tu código (dentro de bosssecretary_get_config()), agregá esto:
+php
+Copiar
+Editar
+foreach ($groups as $group) {
+    foreach ($group["bosses"] as $extension) {
+        $ext->add("ext-local-custom", $extension, '', new ext_goto("1", $extension, BOSSSECRETARY_CONTEXT));
+    }
+}
+Esto hace que cuando se llame, por ejemplo, al 300, FreePBX pase primero por ext-local-custom,300,1 que redirige a tu contexto especial ext-bosssecretary.
+
+✳️ Qué hace esto:
+Esto no reemplaza el plan de marcado principal, sino que sobrescribe el comportamiento para esa extensión cuando es llamada internamente, sin romper el dialplan de FreePBX.
+
+🧠 Por qué funciona:
+Cada extensión en FreePBX tiene un contexto como ext-local, que incluye ext-local-custom al final.
+
+Si agregás algo como ext-local-custom,300, eso se ejecutará antes del contexto generado por FreePBX si hacés un Goto.
+
+📁 Recomendación extra:
+No cambies el contexto base de la extensión desde el panel de FreePBX (o base de datos devices) porque:
+
+Se rompe el plan de marcado generado por FreePBX.
+
+Los cambios pueden perderse al actualizar o hacer reload.
+
+🧪 Probá así:
+Recargá Asterisk:
+
+bash
+Copiar
+Editar
+fwconsole reload
+Desde cualquier otra extensión (como la 501), llamá al 300:
+Verificá que ahora Asterisk entra por ext-local-custom,300,1 y luego salta a tu lógica.
+
+📦 Bonus: ¿Querés que el 300 también funcione externamente (from-pstn)?
+Si querés interceptar llamadas desde fuera (como el 1851 llamando al 300), tenés que agregar una entrada en from-pstn con algo como:
+
+php
+Copiar
+Editar
+$ext->add("from-pstn", "300", '', new ext_goto("1", "300", BOSSSECRETARY_CONTEXT));
+Pero esto solo funciona si la llamada entra con DID 300 exacto.
+
+¿Querés que te arme el bloque completo para agregar en bosssecretary_get_config() o tenés alguna lógica distinta por DID?
+
+
+
+
+
+
+
+
+Tú dijiste:
+recapitulame que hacer para que la llamada desde el 1851 (externo, desde troncal) llegue al 300 (jefe, interno) sin tener que modificar el extensions_custom.conf, o sea que lo haga para cualquier jefe
+
+
+ChatGPT Plus
+Perfecto, vamos a recapitular paso a paso cómo hacer que una llamada desde otra central (como la extensión 1851 vía troncal) llegue correctamente a un jefe (como el 300) y ejecute tu módulo BossSecretary automáticamente, sin tener que modificar extensions_custom.conf a mano.
+
+🎯 Objetivo
+Cuando alguien desde otra central llama al jefe (300), queremos:
+
+✅ Redirigir automáticamente esa llamada al contexto de BossSecretary
+✅ Sin editar manualmente extensions_custom.conf
+✅ Funcione para cualquier jefe definido en tu módulo
+
+🧩 ¿Por qué no funciona hoy?
+Porque cuando una llamada entra desde la troncal, va al contexto from-pstn, y si el destino es 300, Asterisk lo trata como una extensión directa, sin pasar por ext-local-custom.
+
+✅ Solución completa
+🧱 Paso 1 – En tu módulo, dentro de bosssecretary_get_config(), agregá esto:
+php
+Copiar
+Editar
+foreach ($groups as $group) {
+    foreach ($group["bosses"] as $extension) {
+        // Para llamadas internas
+        $ext->add("ext-local-custom", $extension, '', new ext_goto("1", $extension, BOSSSECRETARY_CONTEXT));
+
+        // Para llamadas entrantes (from-pstn), si el DID coincide con el número del jefe
+        $ext->add("from-pstn", $extension, '', new ext_goto("1", $extension, BOSSSECRETARY_CONTEXT));
+    }
+}
+💡 Este código asegura que:
+
+Si una extensión interna llama al jefe, se redirige a ext-bosssecretary.
+
+Si una llamada desde una troncal entra con DID 300, también se redirige a ext-bosssecretary.
+
+📦 Paso 2 – Verificá que los DIDs en la troncal vengan con los números internos correctos
+Desde la otra central, al marcar #44 300, asegúrate de que la llamada llegue con DID = 300. Podés ver esto con:
+
+bash
+Copiar
+Editar
+asterisk -rvvv
+Y buscar la línea como:
+
+sql
+Copiar
+Editar
+Called PJSIP/300
+O:
+
+css
+Copiar
+Editar
+-- Executing [300@from-pstn:1]
+🔁 Paso 3 – Hacé fwconsole reload después de instalar o actualizar el módulo
+Esto aplica los cambios en el plan de marcado generado automáticamente.
+
+bash
+Copiar
+Editar
+fwconsole reload
+🧪 Paso 4 – Probá desde la otra central
+Desde la extensión 1851 (en otra central), llamá al jefe (300). Asterisk debería entrar por:
+
+ini
+Copiar
+Editar
+[from-pstn] exten => 300,1,Goto(ext-bosssecretary,300,1)
+Y tu módulo debería ejecutarse.
+
+✅ Conclusión
+✔ Sin editar extensions_custom.conf
+✔ Compatible con múltiples jefes
+✔ Funciona desde llamadas internas y externas (troncal)
+
+¿Querés que te pase el bloque completo final para pegar en bosssecretary_get_config()?
+
+
+
+
+
+
+
+
+Tú dijiste:
+no funciona. logs de asterisk:
+
+  -- Executing [300@from-pstn:1] Set("PJSIP/pbxtucuman-00000027", "__DIRECTION=INBOUND") in new stack
+    -- Executing [300@from-pstn:2] Gosub("PJSIP/pbxtucuman-00000027", "sub-record-check,s,1(in,300,dontcare)") in new stack
+    -- Executing [s@sub-record-check:1] GotoIf("PJSIP/pbxtucuman-00000027", "0?initialized") in new stack
+    -- Executing [s@sub-record-check:2] Set("PJSIP/pbxtucuman-00000027", "__REC_STATUS=INITIALIZED") in new stack
+    -- Executing [s@sub-record-check:3] Set("PJSIP/pbxtucuman-00000027", "NOW=1752507478") in new stack
+    -- Executing [s@sub-record-check:4] Set("PJSIP/pbxtucuman-00000027", "__DAY=14") in new stack
+    -- Executing [s@sub-record-check:5] Set("PJSIP/pbxtucuman-00000027", "__MONTH=07") in new stack
+    -- Executing [s@sub-record-check:6] Set("PJSIP/pbxtucuman-00000027", "__YEAR=2025") in new stack
+    -- Executing [s@sub-record-check:7] Set("PJSIP/pbxtucuman-00000027", "__TIMESTR=20250714-123758") in new stack
+    -- Executing [s@sub-record-check:8] Set("PJSIP/pbxtucuman-00000027", "__FROMEXTEN=unknown") in new stack
+    -- Executing [s@sub-record-check:9] Set("PJSIP/pbxtucuman-00000027", "__MON_FMT=wav") in new stack
+    -- Executing [s@sub-record-check:10] NoOp("PJSIP/pbxtucuman-00000027", "Recordings initialized") in new stack
+    -- Executing [s@sub-record-check:11] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(ARG3=dontcare)") in new stack
+    -- Executing [s@sub-record-check:12] Set("PJSIP/pbxtucuman-00000027", "REC_POLICY_MODE_SAVE=") in new stack
+    -- Executing [s@sub-record-check:13] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(REC_STATUS=NO)") in new stack
+    -- Executing [s@sub-record-check:14] GotoIf("PJSIP/pbxtucuman-00000027", "2?checkaction") in new stack
+    -- Goto (sub-record-check,s,17)
+    -- Executing [s@sub-record-check:17] GotoIf("PJSIP/pbxtucuman-00000027", "1?sub-record-check,in,1") in new stack
+    -- Goto (sub-record-check,in,1)
+    -- Executing [in@sub-record-check:1] NoOp("PJSIP/pbxtucuman-00000027", "Inbound Recording Check to 300") in new stack
+    -- Executing [in@sub-record-check:2] Set("PJSIP/pbxtucuman-00000027", "FROMEXTEN=unknown") in new stack
+    -- Executing [in@sub-record-check:3] ExecIf("PJSIP/pbxtucuman-00000027", "4?Set(FROMEXTEN=1851)") in new stack
+    -- Executing [in@sub-record-check:4] Gosub("PJSIP/pbxtucuman-00000027", "recordcheck,1(dontcare,in,300)") in new stack
+    -- Executing [recordcheck@sub-record-check:1] NoOp("PJSIP/pbxtucuman-00000027", "Starting recording check against dontcare") in new stack
+    -- Executing [recordcheck@sub-record-check:2] Goto("PJSIP/pbxtucuman-00000027", "dontcare") in new stack
+    -- Goto (sub-record-check,recordcheck,3)
+    -- Executing [recordcheck@sub-record-check:3] Return("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [in@sub-record-check:5] Return("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [300@from-pstn:3] Set("PJSIP/pbxtucuman-00000027", "CHANNEL(tonezone)=us") in new stack
+    -- Executing [300@from-pstn:4] Set("PJSIP/pbxtucuman-00000027", "__FROM_DID=300") in new stack
+    -- Executing [300@from-pstn:5] Set("PJSIP/pbxtucuman-00000027", "returnhere=1") in new stack
+    -- Executing [300@from-pstn:6] Gosub("PJSIP/pbxtucuman-00000027", "app-blacklist-check,s,1()") in new stack
+    -- Executing [s@app-blacklist-check:1] GotoIf("PJSIP/pbxtucuman-00000027", "0?blacklisted") in new stack
+    -- Executing [s@app-blacklist-check:2] Set("PJSIP/pbxtucuman-00000027", "CALLED_BLACKLIST=1") in new stack
+    -- Executing [s@app-blacklist-check:3] Return("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [300@from-pstn:7] Set("PJSIP/pbxtucuman-00000027", "CDR(did)=300") in new stack
+    -- Executing [300@from-pstn:8] GotoIf("PJSIP/pbxtucuman-00000027", "0?") in new stack
+    -- Executing [300@from-pstn:9] ExecIf("PJSIP/pbxtucuman-00000027", "0 ?Set(CALLERID(name)=1851)") in new stack
+    -- Executing [300@from-pstn:10] Set("PJSIP/pbxtucuman-00000027", "__MOHCLASS=") in new stack
+    -- Executing [300@from-pstn:11] Set("PJSIP/pbxtucuman-00000027", "__REVERSAL_REJECT=FALSE") in new stack
+    -- Executing [300@from-pstn:12] GotoIf("PJSIP/pbxtucuman-00000027", "1?post-reverse-charge") in new stack
+    -- Goto (from-pstn,300,14)
+    -- Executing [300@from-pstn:14] NoOp("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [300@from-pstn:15] Set("PJSIP/pbxtucuman-00000027", "__CALLINGNAMEPRES_SV=allowed_not_screened") in new stack
+    -- Executing [300@from-pstn:16] Set("PJSIP/pbxtucuman-00000027", "__CALLINGNUMPRES_SV=allowed_not_screened") in new stack
+    -- Executing [300@from-pstn:17] Set("PJSIP/pbxtucuman-00000027", "CALLERID(name-pres)=allowed_not_screened") in new stack
+    -- Executing [300@from-pstn:18] Set("PJSIP/pbxtucuman-00000027", "CALLERID(num-pres)=allowed_not_screened") in new stack
+    -- Executing [300@from-pstn:19] NoOp("PJSIP/pbxtucuman-00000027", "CallerID Entry Point") in new stack
+    -- Executing [300@from-pstn:20] Set("PJSIP/pbxtucuman-00000027", "__CRM_DIRECTION=INBOUND") in new stack
+    -- Executing [300@from-pstn:21] Set("PJSIP/pbxtucuman-00000027", "__CRM_SOURCE=1851") in new stack
+    -- Executing [300@from-pstn:22] Set("PJSIP/pbxtucuman-00000027", "__CRM_LINKEDID=1752507478.222") in new stack
+    -- Executing [300@from-pstn:23] AGI("PJSIP/pbxtucuman-00000027", "agi://127.0.0.1/sangomacrm.agi,true") in new stack
+    -- <PJSIP/pbxtucuman-00000027>AGI Script agi://127.0.0.1/sangomacrm.agi completed, returning 0
+    -- Executing [300@from-pstn:24] ExecIf("PJSIP/pbxtucuman-00000027", "1?Set(CHANNEL(hangup_handler_push)=crm-hangup,s,1)") in new stack
+    -- Executing [300@from-pstn:25] Goto("PJSIP/pbxtucuman-00000027", "ext-group,400,1") in new stack
+    -- Goto (ext-group,400,1)
+    -- Executing [400@ext-group:1] GotoIf("PJSIP/pbxtucuman-00000027", "0?cid") in new stack
+    -- Executing [400@ext-group:2] Set("PJSIP/pbxtucuman-00000027", "__MCGROUP=400") in new stack
+    -- Executing [400@ext-group:3] PlayTones("PJSIP/pbxtucuman-00000027", "ring") in new stack
+    -- Executing [400@ext-group:4] Progress("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [400@ext-group:5] Gosub("PJSIP/pbxtucuman-00000027", "macro-user-callerid,s,1()") in new stack
+    -- Executing [s@macro-user-callerid:1] Set("PJSIP/pbxtucuman-00000027", "TOUCH_MONITOR=1752507478.222") in new stack
+    -- Executing [s@macro-user-callerid:2] Set("PJSIP/pbxtucuman-00000027", "CHANCONTEXT=") in new stack
+    -- Executing [s@macro-user-callerid:3] Set("PJSIP/pbxtucuman-00000027", "CHANCONTEXT=") in new stack
+    -- Executing [s@macro-user-callerid:4] Set("PJSIP/pbxtucuman-00000027", "CHANEXTENCONTEXT=pbxtucuman-00000027") in new stack
+    -- Executing [s@macro-user-callerid:5] Set("PJSIP/pbxtucuman-00000027", "CHANEXTEN=pbxtucuman-00000027") in new stack
+    -- Executing [s@macro-user-callerid:6] Set("PJSIP/pbxtucuman-00000027", "CALLERID(number)=1851") in new stack
+    -- Executing [s@macro-user-callerid:7] Set("PJSIP/pbxtucuman-00000027", "AMPUSER=1851") in new stack
+    -- Executing [s@macro-user-callerid:8] Set("PJSIP/pbxtucuman-00000027", "HOTDESCKCHAN=pbxtucuman-00000027") in new stack
+    -- Executing [s@macro-user-callerid:9] Set("PJSIP/pbxtucuman-00000027", "HOTDESKEXTEN=pbxtucuman") in new stack
+    -- Executing [s@macro-user-callerid:10] Set("PJSIP/pbxtucuman-00000027", "HOTDESKCALL=0") in new stack
+    -- Executing [s@macro-user-callerid:11] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(HOTDESKCALL=1)") in new stack
+    -- Executing [s@macro-user-callerid:12] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(CALLERID(name)=)") in new stack
+    -- Executing [s@macro-user-callerid:13] GotoIf("PJSIP/pbxtucuman-00000027", "0?report") in new stack
+    -- Executing [s@macro-user-callerid:14] ExecIf("PJSIP/pbxtucuman-00000027", "1?Set(REALCALLERIDNUM=1851)") in new stack
+    -- Executing [s@macro-user-callerid:15] Set("PJSIP/pbxtucuman-00000027", "AMPUSER=") in new stack
+    -- Executing [s@macro-user-callerid:16] GotoIf("PJSIP/pbxtucuman-00000027", "0?limit") in new stack
+    -- Executing [s@macro-user-callerid:17] Set("PJSIP/pbxtucuman-00000027", "AMPUSERCIDNAME=") in new stack
+    -- Executing [s@macro-user-callerid:18] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(__CIDMASQUERADING=TRUE)") in new stack
+    -- Executing [s@macro-user-callerid:19] GotoIf("PJSIP/pbxtucuman-00000027", "1?report") in new stack
+    -- Goto (macro-user-callerid,s,28)
+    -- Executing [s@macro-user-callerid:28] NoOp("PJSIP/pbxtucuman-00000027", "Macro depricated!! To keep the same line numbers") in new stack
+    -- Executing [s@macro-user-callerid:29] NoOp("PJSIP/pbxtucuman-00000027", "Macro depricated !!  To keep the same line numbers") in new stack
+    -- Executing [s@macro-user-callerid:30] GotoIf("PJSIP/pbxtucuman-00000027", "0?continue") in new stack
+    -- Executing [s@macro-user-callerid:31] ExecIf("PJSIP/pbxtucuman-00000027", "1?Set(__CALLEE_ACCOUNCODE=)") in new stack
+    -- Executing [s@macro-user-callerid:32] Set("PJSIP/pbxtucuman-00000027", "__TTL=64") in new stack
+    -- Executing [s@macro-user-callerid:33] GotoIf("PJSIP/pbxtucuman-00000027", "1?continue") in new stack
+    -- Goto (macro-user-callerid,s,49)
+    -- Executing [s@macro-user-callerid:49] Set("PJSIP/pbxtucuman-00000027", "CALLERID(number)=1851") in new stack
+       > 0x7fdc38050010 -- Strict RTP learning after remote address set to: 10.6.6.133:18328
+    -- Executing [s@macro-user-callerid:50] Set("PJSIP/pbxtucuman-00000027", "CALLERID(name)=Negrete Joaquin") in new stack
+    -- Executing [s@macro-user-callerid:51] GotoIf("PJSIP/pbxtucuman-00000027", "0?cnum") in new stack
+    -- Executing [s@macro-user-callerid:52] Set("PJSIP/pbxtucuman-00000027", "__MCNUM=1851") in new stack
+    -- Executing [s@macro-user-callerid:53] Set("PJSIP/pbxtucuman-00000027", "__MCNAME=Negrete Joaquin") in new stack
+    -- Executing [s@macro-user-callerid:54] Set("PJSIP/pbxtucuman-00000027", "__MCEXTEN=") in new stack
+    -- Executing [s@macro-user-callerid:55] Set("PJSIP/pbxtucuman-00000027", "__MCORGCHAN=PJSIP/pbxtucuman-00000027") in new stack
+    -- Executing [s@macro-user-callerid:56] Set("PJSIP/pbxtucuman-00000027", "CDR(cnam)=Negrete Joaquin") in new stack
+    -- Executing [s@macro-user-callerid:57] Set("PJSIP/pbxtucuman-00000027", "CDR(cnum)=1851") in new stack
+    -- Executing [s@macro-user-callerid:58] Return("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [400@ext-group:6] Gosub("PJSIP/pbxtucuman-00000027", "macro-blkvm-setifempty,s,1()") in new stack
+    -- Executing [s@macro-blkvm-setifempty:1] GotoIf("PJSIP/pbxtucuman-00000027", "1?init") in new stack
+    -- Goto (macro-blkvm-setifempty,s,4)
+    -- Executing [s@macro-blkvm-setifempty:4] Set("PJSIP/pbxtucuman-00000027", "__BLKVM_CHANNEL=PJSIP/pbxtucuman-00000027") in new stack
+    -- Executing [s@macro-blkvm-setifempty:5] Set("PJSIP/pbxtucuman-00000027", "SHARED(BLKVM,PJSIP/pbxtucuman-00000027)=TRUE") in new stack
+    -- Executing [s@macro-blkvm-setifempty:6] Set("PJSIP/pbxtucuman-00000027", "GOSUB_RETVAL=TRUE") in new stack
+    -- Executing [s@macro-blkvm-setifempty:7] Return("PJSIP/pbxtucuman-00000027", "TRUE") in new stack
+    -- Executing [400@ext-group:7] GotoIf("PJSIP/pbxtucuman-00000027", "1?skipov") in new stack
+    -- Goto (ext-group,400,10)
+    -- Executing [400@ext-group:10] Set("PJSIP/pbxtucuman-00000027", "RRNODEST=") in new stack
+    -- Executing [400@ext-group:11] Set("PJSIP/pbxtucuman-00000027", "__NODEST=400") in new stack
+    -- Executing [400@ext-group:12] GosubIf("PJSIP/pbxtucuman-00000027", "0?sub-rgsetcid,s,1()") in new stack
+    -- Executing [400@ext-group:13] Gosub("PJSIP/pbxtucuman-00000027", "sub-record-check,s,1(rg,400,dontcare)") in new stack
+    -- Executing [s@sub-record-check:1] GotoIf("PJSIP/pbxtucuman-00000027", "4?initialized") in new stack
+    -- Goto (sub-record-check,s,10)
+    -- Executing [s@sub-record-check:10] NoOp("PJSIP/pbxtucuman-00000027", "Recordings initialized") in new stack
+    -- Executing [s@sub-record-check:11] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(ARG3=dontcare)") in new stack
+    -- Executing [s@sub-record-check:12] Set("PJSIP/pbxtucuman-00000027", "REC_POLICY_MODE_SAVE=") in new stack
+    -- Executing [s@sub-record-check:13] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(REC_STATUS=NO)") in new stack
+    -- Executing [s@sub-record-check:14] GotoIf("PJSIP/pbxtucuman-00000027", "2?checkaction") in new stack
+    -- Goto (sub-record-check,s,17)
+    -- Executing [s@sub-record-check:17] GotoIf("PJSIP/pbxtucuman-00000027", "0?sub-record-check,rg,1") in new stack
+    -- Executing [s@sub-record-check:18] NoOp("PJSIP/pbxtucuman-00000027", "Generic rg Recording Check - 1851 400") in new stack
+    -- Executing [s@sub-record-check:19] Gosub("PJSIP/pbxtucuman-00000027", "recordcheck,1(dontcare,rg,400)") in new stack
+    -- Executing [recordcheck@sub-record-check:1] NoOp("PJSIP/pbxtucuman-00000027", "Starting recording check against dontcare") in new stack
+    -- Executing [recordcheck@sub-record-check:2] Goto("PJSIP/pbxtucuman-00000027", "dontcare") in new stack
+    -- Goto (sub-record-check,recordcheck,3)
+    -- Executing [recordcheck@sub-record-check:3] Return("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [s@sub-record-check:20] Return("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [400@ext-group:14] Set("PJSIP/pbxtucuman-00000027", "RingGroupMethod=firstavailable") in new stack
+    -- Executing [400@ext-group:15] Set("PJSIP/pbxtucuman-00000027", "__ALT_CONFIRM_MSG=") in new stack
+    -- Executing [400@ext-group:16] GotoIf("PJSIP/pbxtucuman-00000027", "0?RGVQANNOUNCE:NORGVQANNOUNCE") in new stack
+    -- Goto (ext-group,400,19)
+    -- Executing [400@ext-group:19] Gosub("PJSIP/pbxtucuman-00000027", "macro-dial,s,1(20,HhTtrQ(NO_ANSWER),301300)") in new stack
+    -- Executing [s@macro-dial:1] NoOp("PJSIP/pbxtucuman-00000027", "Blind Transfer: , Attended Transfer: , User: , Alert Info: ") in new stack
+    -- Executing [s@macro-dial:2] Set("PJSIP/pbxtucuman-00000027", "__CRM_SOURCE=1851") in new stack
+    -- Executing [s@macro-dial:3] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:4] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:5] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(ALERT_INFO=)") in new stack
+    -- Executing [s@macro-dial:6] ExecIf("PJSIP/pbxtucuman-00000027", "0?Set(CHANNEL(musicclass)=)") in new stack
+    -- Executing [s@macro-dial:7] AGI("PJSIP/pbxtucuman-00000027", "agi://127.0.0.1/dialparties.agi") in new stack
+ agi://127.0.0.1/dialparties.agi: Starting New Dialparties.agi
+ agi://127.0.0.1/dialparties.agi: Caller ID name is 'Negrete Joaquin' number is '1851'
+ agi://127.0.0.1/dialparties.agi: CW Ignore is:
+ agi://127.0.0.1/dialparties.agi: CF Ignore is:
+ agi://127.0.0.1/dialparties.agi: CW IN_USE/BUSY is: 1
+ agi://127.0.0.1/dialparties.agi: Ringgroup confirm is  :
+        > agi://127.0.0.1/dialparties.agi: USE_CONFIRMATION:  'FALSE'
+        > agi://127.0.0.1/dialparties.agi: RINGGROUP_INDEX:   ''
+ agi://127.0.0.1/dialparties.agi: Methodology of ring is  'firstavailable'
+    -- agi://127.0.0.1/dialparties.agi: Added extension 301300 to extension map
+    -- agi://127.0.0.1/dialparties.agi: Extension 301300 cf is disabled
+    -- agi://127.0.0.1/dialparties.agi: Extension 301300 do not disturb is disabled
+       > agi://127.0.0.1/dialparties.agi: extnum 301300 has:  cw: 0; hascfb: 0 [] hascfu: 0 []
+ agi://127.0.0.1/dialparties.agi: EXTENSION_STATE: 4 (UNKNOWN)
+ agi://127.0.0.1/dialparties.agi: Extension 301300 has ExtensionState: 4
+    -- agi://127.0.0.1/dialparties.agi: Checking CW and CFB status for extension 301300
+ agi://127.0.0.1/dialparties.agi: Extension 301300 is not available to be called
+    -- agi://127.0.0.1/dialparties.agi: Filtered ARG3:
+       > agi://127.0.0.1/dialparties.agi: NODEST: 400 adding U(macro-auto-blkvm) to dialopts: HhTtrQ(NO_ANSWER)U(macro-auto-blkvm)
+       > agi://127.0.0.1/dialparties.agi: NODEST: 400 blkvm enabled macro already in dialopts: HhTtrQ(NO_ANSWER)U(macro-auto-blkvm)
+ agi://127.0.0.1/dialparties.agi: Setting default NOANSWER DIALSTATUS since no extensions available
+ agi://127.0.0.1/dialparties.agi: RVOL_MODE ''
+ agi://127.0.0.1/dialparties.agi: RVOL is:
+ agi://127.0.0.1/dialparties.agi: RVOLPARENT is:
+    -- <PJSIP/pbxtucuman-00000027>AGI Script agi://127.0.0.1/dialparties.agi completed, returning 0
+    -- Executing [s@macro-dial:8] GotoIf("PJSIP/pbxtucuman-00000027", "0?") in new stack
+    -- Executing [s@macro-dial:9] NoOp("PJSIP/pbxtucuman-00000027", "Returned from dialparties with no extensions to call and DIALSTATUS: NOANSWER") in new stack
+    -- Executing [s@macro-dial:10] Return("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [400@ext-group:20] Gosub("PJSIP/pbxtucuman-00000027", "sub-record-cancel,s,1()") in new stack
+    -- Executing [s@sub-record-cancel:1] Return("PJSIP/pbxtucuman-00000027", "") in new stack
+    -- Executing [400@ext-group:21] Set("PJSIP/pbxtucuman-00000027", "RingGroupMethod=") in new stack
+    -- Executing [400@ext-group:22] GotoIf("PJSIP/pbxtucuman-00000027", "0?nodest") in new stack
+    -- Executing [400@ext-group:23] Set("PJSIP/pbxtucuman-00000027", "__NODEST=") in new stack
+    -- Executing [400@ext-group:24] Gosub("PJSIP/pbxtucuman-00000027", "macro-blkvm-clr,s,1()") in new stack
+    -- Executing [s@macro-blkvm-clr:1] Set("PJSIP/pbxtucuman-00000027", "SHARED(BLKVM,PJSIP/pbxtucuman-00000027)=") in new stack
+    -- Executing [s@macro-blkvm-clr:2] Set("PJSIP/pbxtucuman-00000027", "GOSUB_RETVAL=") in new stack
+    -- Executing [s@macro
+//$ext->add('from-pstn', '_.', '', new ext_execif('$["${DB(bosssecretary/group/member/${EXTEN})}" = "boss"]', 'Goto(bosssecretary-routing,${EXTEN},1)'));
+				//$ext->add('from-pstn', '_.', '', new ext_goto('bosssecretary-routing,${EXTEN},1'));
+			break;
+	}
+
+}
+
+
+/********************************************************
+*														*
+* 					DATABASE FUNCTIONS					*
+*														*
+********************************************************/
+
+function bosssecretary_get_groups()
+{
+	global $db;
+	$sql = "SELECT * from bosssecretary_group";
+	$results = $db->getAll($sql);
+	if(DB::IsError($results)) {
+		$results = null;
+	}
+	return $results;
+}
+
+
+function bosssecretary_get_fcc_toggle()
+{
+	$fcc = new featurecode('bosssecretary', 'bsc_toggle');
+	$extLock = $fcc->getCodeActive();
+	unset($fcc);
+	return $extLock;
+}
+
+function bosssecretary_get_fcc_on()
+{
+	$fcc = new featurecode('bosssecretary', 'bsc_on');
+	$extLock = $fcc->getCodeActive();
+	unset($fcc);
+	return $extLock;
+}
+
+function bosssecretary_get_fcc_off()
+{
+	$fcc = new featurecode('bosssecretary', 'bsc_off');
+	$extLock = $fcc->getCodeActive();
+	unset($fcc);
+	return $extLock;
+}
+
+function bosssecretary_to_group($groups)
+{
+	$newGroup = array();
+
+	foreach ($groups as $group)
+	{
+		$id = $group["id_group"];
+
+		if (!isset($newGroup[$id]))
+		{
+			$newGroup[$id] = $group;
+			$newGroup[$id]["bosses"] = array();
+			$newGroup[$id]["secretaries"] = array();
+			$newGroup[$id]["chiefs"] = array(); 
+
+			if (!empty($group["boss_extension"])) {
+				$newGroup[$id]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+			}
+			if (!empty($group["secretary_extension"])) {
+				$newGroup[$id]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+			}
+			if (!empty($group["chief_extension"])) {
+				$newGroup[$id]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+		else
+		{
+			if (!empty($group["boss_extension"]) && !isset($newGroup[$id]["bosses"][$group["boss_extension"]])) {
+				$newGroup[$id]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+			}
+			if (!empty($group["secretary_extension"]) && !isset($newGroup[$id]["secretaries"][$group["secretary_extension"]])) {
+				$newGroup[$id]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+			}
+			if (!empty($group["chief_extension"]) && !isset($newGroup[$id]["chiefs"][$group["chief_extension"]])) {
+				$newGroup[$id]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+	}
+
+	return $newGroup;
+}
+
+/*function bosssecretary_to_group($groups)
+{
+	$newGroup = array();
+	foreach ($groups as $group)
+	{
+		if (!isset($newGroup[$group["id_group"]]))
+		{
+			$newGroup[$group["id_group"]] =  $group;
+			$newGroup[$group["id_group"]]["bosses"] = array();
+			// isset is so much faster than in_array ;)
+			$newGroup[$group["id_group"]]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+
+			$newGroup[$group["id_group"]]["secretaries"] = array();
+			// isset is so much faster than in_array ;)
+			$newGroup[$group["id_group"]]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+
+			if (isset($group["chief_extension"]))
+			{
+				$newGroup[$group["id_group"]]["chiefs"] = array();
+				$newGroup[$group["id_group"]]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+		else
+		{
+			// isset is so much faster than in_array ;)
+			if (!isset($newGroup[$group["id_group"]]["bosses"][$group["boss_extension"]]))
+			{
+				$newGroup[$group["id_group"]]["bosses"][$group["boss_extension"]] = $group["boss_extension"];
+			}
+			// isset is so much faster than in_array ;)
+			if (!isset($newGroup[$group["id_group"]]["secretaries"][$group["secretary_extension"]]))
+			{
+				$newGroup[$group["id_group"]]["secretaries"][$group["secretary_extension"]] = $group["secretary_extension"];
+			}
+			if (!isset($newGroup[$group["id_group"]]["chiefs"][$group["chief_extension"]]))
+			{
+				$newGroup[$group["id_group"]]["chiefs"][$group["chief_extension"]] = $group["chief_extension"];
+			}
+		}
+	}
+	return $newGroup;
+}*/
+
+function bosssecretary_search($extensions)
+{
+	global $db;
+	$extensions = explode(",", $extensions);
+	foreach ($extensions as $extension)
+	{
+		if (is_numeric($extension))
+		{
+			$valid[]= trim($extension);
+		}
+
+	}
+	if (!empty($valid))
+	{
+		$extensions = implode(",", $valid);
+		$sql = "SELECT boss_extension AS extension, 'boss' as `type`, g.* FROM bosssecretary_group as g INNER JOIN bosssecretary_boss as b ON b.id_group = g.id_group  WHERE boss_extension IN ($extensions)
+			UNION 
+			SELECT secretary_extension AS extension, 'secretary' as `type`, g.* FROM bosssecretary_group as g INNER JOIN bosssecretary_secretary as s ON s.id_group = g.id_group  WHERE secretary_extension IN ($extensions)
+			UNION
+			SELECT chief_extension AS extension, 'chief' as `type`, g.* FROM bosssecretary_group as g INNER JOIN bosssecretary_chief as c ON c.id_group = g.id_group  WHERE chief_extension IN ($extensions)
+";
+		//echo $sql . "<br>";
+
+		$results = $db->getAll($sql, array(), DB_FETCHMODE_ASSOC);
+		if(DB::IsError($results)) {
+			$results = null;
+		}
+		return $results;
+	}
+	return null;
+
+}
+
+
+function bosssecretary_get_all_groups()
+{
+	global $db;
+	$sql = "SELECT
+			g.id_group, 
+			boss_extension, 
+			secretary_extension,
+			chief_extension  
+		FROM bosssecretary_group AS g  
+		INNER JOIN bosssecretary_boss AS b ON g.id_group = b.id_group 
+		INNER JOIN bosssecretary_secretary AS s ON g.id_group = s.id_group
+		LEFT JOIN bosssecretary_chief AS c ON g.id_group = c.id_group
+;";
+	$results = $db->getAll($sql, array(), DB_FETCHMODE_ASSOC);
+	if(DB::IsError($results)) {
+		$results = null;
+	}
+	return $results;
+}
+
+function bosssecretary_array_diff_with_db(array $exts, $group_number)
+{
+	global $db;
+
+
+	if (!empty($exts))
+	{
+		if (bosssecretary_group_exists($group_number))
+		{
+			$sqlB = "AND id_group <> '" . $db->escapeSimple($group_number) . "'";
+			$sqlS = "AND id_group <> '" . $db->escapeSimple($group_number) . "'";
+		}
+		else
+		{
+			$sqlB = $sqlS = "";
+		}
+		$exts = array_unique($exts);
+		$strExts = bosssecretary_array_to_mysql_param_in($exts);
+
+		$sql = "SELECT `boss_extension` AS `extension` FROM `bosssecretary_boss` WHERE boss_extension IN ($strExts) $sqlB
+				UNION
+				SELECT `secretary_extension` AS `extension` FROM `bosssecretary_secretary` WHERE secretary_extension IN ($strExts) $sqlS";
+
+		$results = $db->getAll($sql, array(), DB_FETCHMODE_ASSOC);
+		if(DB::IsError($results))
+		{
+			$results = null;
+		}
+		else
+		{
+			foreach ($results as $record)
+			{
+				if (($key = array_search($record['extension'], $exts)) !== FALSE)
+				{
+					unset($exts[$key]);
+				}
+			}
+			$strExts = bosssecretary_array_to_mysql_param_in($exts);
+			$sql = "SELECT extension FROM `users` WHERE extension IN ($strExts)";
+			$results = $db->getAll($sql, array(), DB_FETCHMODE_ASSOC);
+			if(DB::IsError($results))
+			{
+				$results = null;
+			}
+			else
+			{
+				$exts = array();
+				foreach ($results as $record)
+				{
+					array_push($exts, current($record));
+				}
+			}
+
+		}
+	}
+	return $exts;
+}
+
+
+
+
+function bosssecretary_clean_remove_duplicates( $bosses, $secretaries , $group_number = "")
+{
+	// Extraigo las extensiones de jefes del formulario
+	$arr_bosses_extensions = bosssecretary_str_extensions_to_array($bosses);
+
+	// Extraigo las extensiones de secretaria del formulario
+	$arr_secretaries_extensions = bosssecretary_str_extensions_to_array($secretaries);
+
+	// Quito de las extensiones de secretarias las extensiones que estan en los jefes
+	$arr_secretaries_extensions = bosssecretary_array_diff($arr_secretaries_extensions, $arr_bosses_extensions);
+
+
+	$extensionsCleaned = array();
+	// Ahora quito de las extensiones de secretarias las extensiones que ya son jefes o secretarias segun la BD
+	$extensionsCleaned["secretaries"] = bosssecretary_array_diff_with_db($arr_secretaries_extensions, $group_number);
+
+	// Ahora quito de las extensiones de jefes las extensiones que ya son jefes o secretarias segun la BD
+	$extensionsCleaned["bosses"] = bosssecretary_array_diff_with_db($arr_bosses_extensions, $group_number);
+	return $extensionsCleaned;
+}
+
+function bosssecretary_get_group_number_free()
+{
+	global $db;
+	$sql = "SELECT MIN(group_number) AS Bottom FROM bosssecretary_group_numbers_free ORDER BY group_number ASC LIMIT 1";
+	$result = $db->getAll($sql, array(), DB_FETCHMODE_ASSOC);
+	if(DB::IsError($result)) {
+		$result = null;
+	}
+	if (!isset($result[0]["Bottom"]))
+	{
+		$sql = "SELECT MAX(id_group) AS Top FROM bosssecretary_group";
+		$result = $db->getAll($sql, array(), DB_FETCHMODE_ASSOC);
+		if(DB::IsError($result)) {
+			$result = null;
+		}
+		if (!isset($result[0]["Top"]))
+		{
+			$next = 1;
+		}
+		else
+		{
+			$next = $result[0]["Top"] + 1;
+		}
+	}
+	else
+	{
+		$next = $result[0]["Bottom"];
+	}
+	return $next;
+}
+
+
+function bosssecretary_set_group_number_free($number)
+{
+	global $db;
+	$sql = "INSERT INTO bosssecretary_group_numbers_free VALUES ('$number')";
+	//$result = $db->getAll($sql);
+	return sql($sql);
+}
+
+function bosssecretary_remove_group_number_free($number)
+{
+	global $db;
+	$sql = "DELETE FROM bosssecretary_group_numbers_free WHERE _rowid NOT IN (SELECT _rowid FROM bosssecretary_group) AND _rowid > (SELECT MAX(_rowid) FROM bosssecretary_group)";
+	sql($sql);
+	$sql = "DELETE FROM bosssecretary_group_numbers_free WHERE _rowid = '$number'";
+	return sql($sql);
+}
+
+
+
+function bosssecretary_group_add ( $group_number, $group_label,  array $bosses, array $secretaries, $chiefs)
+{
+	global $db;
+	$errors= array();
+	if (is_numeric($group_number) or $group_number =="")
+	{
+		if (!bosssecretary_group_exists($group_number))
+		{
+			if (empty($bosses))
+			{
+				array_push($errors, "You must put one boss extension at least");
+			}
+			if (empty($secretaries))
+			{
+				array_push($errors, "You must put one secretary extension at least");
+			}
+
+
+			if (empty($errors))
+			{
+				$sql = "INSERT INTO bosssecretary_group (`id_group`, `label`) VALUES('".$db->escapeSimple($group_number)."', '".$db->escapeSimple($group_label)."')";
+				sql($sql);
+				//$group_number = mysql_insert_id();
+				bosssecretary_remove_group_number_free($group_number);
+
+				foreach ($bosses as $boss)
+				{
+					$boss = trim($boss);
+					if (!empty($boss) and !(bosssecretary_extension_in_bosses_group($boss)))
+					{
+						$sql = "INSERT INTO bosssecretary_boss VALUES ('$group_number', '$boss')";
+						sql($sql);
+					}
+					else
+					{
+						array_push($errors, "($boss) Extension exists already in another group like boss");
+					}
+				}
+				foreach ($secretaries as $secretary)
+				{
+					$secretary = trim($secretary);
+					if (!empty($secretary) and !(bosssecretary_extension_in_secretaries_group($secretary)))
+					{
+						$sql = "INSERT INTO bosssecretary_secretary VALUES ('$group_number', '$secretary')";
+						sql($sql);
+					}
+					else
+					{
+						array_push($errors, "($secretary) Extension exists already in another group like secretary");
+					}
+
+				}
+				if (is_array($chiefs))
+				{
+					foreach ($chiefs as $chief)
+					{
+						$chief = trim($chief);
+						if (!empty($chief))
+						{
+							$sql = "INSERT INTO bosssecretary_chief VALUES ('$group_number', '$chief')";
+							sql($sql);
+						}
+					}
+				}
+			}
+		}
+		else
+		{
+			array_push($errors, 'Group exists already');
+		}
+	}
+	else
+	{
+		array_push($errors, 'Group number must be a numeric value');
+	}
+	return $errors;
+
+
+}
+
+
+function bosssecretary_group_edit ( $group_number, $group_label,  array $bosses, array $secretaries, array $chiefs)
+{
+	global $db;
+	$errors= array();
+	if (is_numeric($group_number))
+	{
+		if (bosssecretary_group_exists($group_number) )
+		{
+			if (empty($bosses))
+			{
+				array_push($errors, "You must put one boss extension at least");
+			}
+			if (empty($secretaries))
+			{
+				array_push($errors, "You must put one secretary extension at least");
+			}
+
+			if (empty($errors))
+			{
+				$sql = "DELETE FROM `bosssecretary_group` WHERE id_group = $group_number";
+				sql($sql);
+
+				$sql = "DELETE FROM `bosssecretary_boss` WHERE id_group = $group_number";
+				sql($sql);
+
+				$sql = "DELETE FROM `bosssecretary_secretary` WHERE id_group = $group_number";
+				sql($sql);
+
+				$sql = "DELETE FROM `bosssecretary_chief` WHERE id_group = $group_number";
+				sql($sql);
+
+				$sql = "INSERT INTO bosssecretary_group (`id_group`, `label`) VALUES('".$db->escapeSimple($group_number)."', '".$db->escapeSimple($group_label)."')";
+				sql($sql);
+				foreach ($bosses as $boss)
+				{
+					$boss = trim($boss);
+					if (!empty($boss))
+					{
+						$sql = "INSERT INTO bosssecretary_boss VALUES ('$group_number', '$boss')";
+						sql($sql);
+					}
+				}
+				foreach ($secretaries as $secretary)
+				{
+					$secretary = trim($secretary);
+					if (!empty($secretary))
+					{
+						$sql = "INSERT INTO bosssecretary_secretary VALUES ('$group_number', '$secretary')";
+						sql($sql);
+					}
+				}
+
+				foreach ($chiefs as $chief)
+				{
+					$chief = trim($chief);
+					if (!empty($chief))
+					{
+						$sql = "INSERT INTO bosssecretary_chief VALUES ('$group_number', '$chief')";
+						sql($sql);
+					}
+				}
+
+			}
+		}
+		else
+		{
+			array_push($errors, "Group doesn't exists");
+		}
+	}
+	else
+	{
+		array_push($errors, 'Group number must be a value numeric');
+	}
+	return $errors;
+
+
+}
+
+function bosssecretary_group_delete($group_number)
+{
+	global $db;
+	$sql = "DELETE FROM `bosssecretary_group` WHERE id_group = '$group_number'";
+	$group = sql($sql);
+
+
+	$sql = "DELETE FROM `bosssecretary_boss` WHERE id_group = '$group_number'";
+	$bosses = sql($sql);
+
+	$sql = "DELETE FROM `bosssecretary_secretary` WHERE id_group = '$group_number'";
+	$secretaries = sql($sql);
+
+	$sql = "DELETE FROM `bosssecretary_chief` WHERE id_group = '$group_number'";
+	$chiefs = sql($sql);
+
+	bosssecretary_set_group_number_free($group_number);
+	return (($group === $bosses) and ($group===$secretaries));
+}
+
+function bosssecretary_group_exists( $group)
+{
+	global $db;
+
+	$sql = "SELECT 'true' from bosssecretary_group WHERE id_group='" . $db->escapeSimple($group). "' LIMIT 1";
+	$results = $db->getAll($sql);
+	if(DB::IsError($results)) {
+		$results = null;
+	}
+	return count($results) == 1;
+}
+
+
+
+
+
+function bosssecretary_extension_in_bosses_group( $ext)
+{
+	global $db;
+	$sql = "SELECT 'true' from bosssecretary_boss WHERE boss_extension='" . $db->escapeSimple($ext) . "' LIMIT 1";
+	$results = $db->getAll($sql);
+	if(DB::IsError($results)) {
+		$results = null;
+	}
+	return count($results) == 1;
+}
+
+
+function bosssecretary_extension_in_secretaries_group( $ext)
+{
+	global $db;
+	$sql = "SELECT 'true' from bosssecretary_secretary WHERE secretary_extension='" . $db->escapeSimple($ext) . "' LIMIT 1";
+	$results = $db->getAll($sql);
+	if(DB::IsError($results)) {
+		$results = null;
+	}
+	return count($results) == 1;
+}
+
+
+
+function bosssecretary_get_data_of_group($group)
+{
+	global $db;
+
+	// we use LEFT JOIN because at least we wanna to know info group (id_group and label)!
+	$sql = "SELECT
+			g.id_group, 
+			g.label, 
+			b.boss_extension, 
+			s.secretary_extension,
+			c.chief_extension  
+		FROM bosssecretary_group AS g 
+		LEFT JOIN bosssecretary_boss AS b ON b.id_group = g.id_group 
+		LEFT JOIN bosssecretary_secretary AS s ON s.id_group = g.id_group
+		LEFT JOIN bosssecretary_chief AS c ON c.id_group = g.id_group
+		WHERE g.id_group='" .  $db->escapeSimple($group) . "'";
+
+	$results = $db->getAll($sql, array(), DB_FETCHMODE_ASSOC);
+	if(DB::IsError($results)) {
+		$results = null;
+	}
+	return $results;
+}
+
+
+
+function bosssecretary_get_extension_data($ext){
+	global $db;
+	$sql = " SELECT extension, name FROM `users` u WHERE extension = '" .  $db->escapeSimple($ext) . "' LIMIT 1;";
+	$results = $db->getAll($sql);
+
+	if(DB::IsError($results)) {
+		$results = array();
+	}
+	else{
+		$results = current($results);
+	}
+	return $results;
+}
+
+function bosssecretary_extension_exists($ext){
+	global $db;
+	$sql = "SELECT 'true' FROM `users` WHERE extension = '" . $db->escapeSimple($ext) . "' LIMIT 1";
+	$result = $db->getAll($sql);
+	return count($result[0]) === 1;
+}
+
+
+/********************************************************
+*														*
+* 					UTILS FUNCTIONS						*
+*														*
+********************************************************/
+
+/*
+
+$haystack = array('a','b','c', 'd');
+$needle = array('b','c', 'd','e');
+
+$result = bosssecretary_array_diff($haystack, $needle);
+
+$result is equal to array('a').
+
+Yeah! I know! array_diff is a php function BUT is broken since v4.0.4 and we need it!
+http://www.php.net/array_diff
+
+*/
+
+
+function bosssecretary_array_diff(array $haystack, array $needle)
+{
+	foreach ($needle as $value)
+	{
+		if (($key = array_search($value, $haystack)) !== FALSE)
+		{
+			unset($haystack[$key]);
+		}
+	}
+	return $haystack;
+}
+
+/*
+
+$haystack = array('a', 'b', 1, 10);
+
+echo  bosssecretary_array_to_mysql_param_in($haystack);
+
+output is:
+'a', 'b', '1', '10'
+
+*/
+
+
+function bosssecretary_array_to_mysql_param_in(array $params)
+{
+	global $db;
+	$arrParams = array();
+	foreach ($params as $value)
+	{
+		array_push($arrParams, "'" .$db->escapeSimple($value). "'");
+	}
+	return implode(", ", $arrParams);
+}
+
+
+
+
+function bosssecretary_str_extensions_to_array($strExtensions)
+{
+	$strExtensions = trim($strExtensions);
+	$strExtensions = str_replace(" ", "\n", $strExtensions);
+	$arrExtensions = explode("\n", $strExtensions);
+	foreach ($arrExtensions as $key => &$ext)
+	{
+		$ext = str_replace('\n','', $ext);
+		$ext = trim($ext);
+		if (empty($ext) and $ext != '0') // 0 is considered an empty string by some versions of php
+		unset($arrExtensions[$key]);
+	}
+	return $arrExtensions;
+}
+
+function bosssecretary_create_nav_groups_links($groups, $dispnum)
+{
+	$links = array();
+	$link["url"] = "config.php?display=$dispnum&bsgroupdisplay=".BOSSSECRETARY_PARAM_PREFIX. "add";
+	$link["text"] = "Add Group";
+	array_push($links, $link);
+	if (!empty($groups))
+	{
+		foreach ($groups as $group)
+		{
+			$link["url"] = "config.php?display=$dispnum&bsgroupdisplay=".BOSSSECRETARY_PARAM_PREFIX . $group[0];
+			if (trim($group[1]) == "" )
+			{
+				$group[1] = BOSSSECRETARY_LABEL_DEFAULT . $group[0];
+			}
+			$link["text"] = $group[0] . " (". $group[1].")";
+			array_push($links, $link);
+		}
+	}
+	return $links;
+}
+
+function bosssecretary_extract_group_from_request( $param)
+{
+	return ltrim($param, BOSSSECRETARY_PARAM_PREFIX); // easy, isn't it?
+}
+
+
+function bosssecretary_set_params_to_edit( $records)
+{
+	$vars = array();
+	$first = current($records);
+	$vars["group_number"] =  $first["id_group"];
+	$vars["group_label"] =  $first["label"];
+
+	if (trim($vars["group_label"]) == "")
+	{
+		$vars["group_label"] = BOSSSECRETARY_LABEL_DEFAULT . $vars["group_number"];
+	}
+
+	$vars["bosses_extensions"] = "";
+	$vars["secretaries_extensions"] = "";
+	$vars["chiefs_extensions"] = "";
+	$s = array();
+	$b = array();
+	$c = array();
+	foreach ($records as $record)
+	{
+
+		if (!empty($record["boss_extension"]))
+		{
+			array_push($b, $record["boss_extension"]);
+		}
+		if (!empty($record["secretary_extension"]))
+		{
+			array_push($s, $record["secretary_extension"]);
+		}
+		if (!empty($record["chief_extension"]))
+		{
+			array_push($c, $record["chief_extension"]);
+		}
+	}
+	$vars["bosses"] = array_unique($b);
+	$vars["secretaries"] = array_unique($s);
+	$vars["chiefs"] = array_unique($c);
+	return $vars;
+}
+
+/********************************************************
+*														*
+* 					GUI FUNCTIONS						*
+*														*
+********************************************************/
+
+
+function bosssecretary_content($title, $content, $messages){
+	echo <<<OUTPUT
+
+
+<div class="content">
+	<h2>$title</h2>
+<script>
+// AJAX to the SubCategory DropDown
+function getExtensions(extensions)
+{
+	
+	var url = "config.php?sid=" + Math.random() + "&display=bosssecretary&extensions=" + extensions + "&ajax=true";
+	xmlHttp=GetXmlHttpObject(setExtensions);
+	xmlHttp.open("GET", url , true);
+	xmlHttp.send(null);
+	document.getElementById('divExtensions').innerHTML = "Searching";
+	return true;
+}
+
+function setExtensions()
+{
+	if (xmlHttp.readyState==4 || xmlHttp.readyState=="complete")
+	{
+		var datos;
+		datos = (xmlHttp.responseText);
+		document.getElementById('divExtensions').innerHTML = datos;
+	}
+}
+
+
+function GetXmlHttpObject(handler){
+	var objXmlHttp=null
+	if (navigator.userAgent.indexOf("Opera")>=0){
+		alert("This doesn't work in Opera")
+		return
+	}
+	if (navigator.userAgent.indexOf("MSIE")>=0){
+		var strName="Msxml2.XMLHTTP"
+		if (navigator.appVersion.indexOf("MSIE 5.5")>=0){
+			strName="Microsoft.XMLHTTP"
+		}
+		try{
+			objXmlHttp=new ActiveXObject(strName)
+			objXmlHttp.onreadystatechange=handler
+			return objXmlHttp
+		}catch(e){
+			alert("Error. Scripting for ActiveX might be disabled")
+			return
+		}
+	}
+	if (navigator.userAgent.indexOf("Mozilla")>=0){
+		objXmlHttp=new XMLHttpRequest()
+		objXmlHttp.onload=handler
+		objXmlHttp.onerror=handler
+		return objXmlHttp
+	}
+}
+
+</script>
+<form method="post" name=searchbosssecretary action="config.php?display=bosssecretary" onsubmit="getExtensions(document.getElementById('extensions').value); return false;">
+<table>
+			<tr>
+				<td colspan="2"><h5>Buscar grupo</h5> <hr /> </td>
+			</tr>			
+			<tr>
+				<td colspan="2"><label>Extension:</label> <input type="text" id="extensions" name= "extension" value=""/> <input type="button" name="submitSearch" onclick="getExtensions(document.getElementById('extensions').value);" value="Search" /></td>				
+			</tr>
+
+			<tr>
+				<td colspan="2"><div id="divExtensions"></div></td>
+			</tr>
+			<tr>
+				<td colspan="2"><hr /></td>
+			</tr>			
+</table>
+</form>
+
+	$messages
+	$content
+
+</div>
+
+OUTPUT;
+
+}
+
+
+function bosssecretary_get_form_add( array $params)
+{
+	$vars["form_title"] = "Add Group";
+	$vars["form_url"] = "config.php?display=bosssecretary&bsgroupdisplay=".BOSSSECRETARY_PARAM_PREFIX. "add";
+	$vars["bosses_extensions"] 		=	(isset($params["bosses"])) ? implode($params["bosses"], "\n") : '';
+	$vars["secretaries_extensions"]	=	(isset($params["secretaries"])) ? implode($params["secretaries"], "\n") : '';
+	$vars["chiefs_extensions"]	=	(isset($params["chiefs"])) ? implode($params["chiefs"], "\n") : '';
+	$vars["group_label"] = (isset($params["group_label"])) ? $params["group_label"] : '';
+	$vars["delete_button"] = "";
+	$vars["action"] = "Add";
+	$vars["message_details"] = $params["message_details"] ?? null;
+	$vars["message_title"] = $params["message_title"] ?? null;
+	return bosssecretary_get_form($vars);
+}
+
+
+function bosssecretary_get_form_edit(array $params)
+{
+    $vars = [];
+
+    $vars["form_title"] = "Edit Group";
+    $vars["form_url"] = "config.php?display=bosssecretary&bsgroupdisplay=" . urlencode($params["group_number"] ?? '');
+
+    $vars["bosses_extensions"] = isset($params["bosses"]) && is_array($params["bosses"])
+        ? implode(", ", $params["bosses"])
+        : '';
+
+    $vars["secretaries_extensions"] = isset($params["secretaries"]) && is_array($params["secretaries"])
+        ? implode(", ", $params["secretaries"])
+        : '';
+
+    $vars["chiefs_extensions"] = isset($params["chiefs"]) && is_array($params["chiefs"])
+        ? implode(", ", $params["chiefs"])
+        : '';
+
+    $vars["group_number"] = $params["group_number"] ?? '';
+    $vars["group_label"] = $params["group_label"] ?? '';
+
+    $vars["delete_button"] = bosssecretary_get_delete_button();
+    $vars["action"] = "Edit";
+
+    $vars["message_details"] = $params["message_details"] ?? '';
+    $vars["message_title"] = $params["message_title"] ?? '';
+
+    $vars["delete_question"] = "Do you really want to delete " . $vars["group_label"] . "?";
+
+    $vars["delete_url"] = "config.php?display=bosssecretary&bsgroupdelete=" . urlencode($params["group_number"] ?? '');
+
+    return bosssecretary_get_form($vars);
+}
+
+
+
+function bosssecretary_get_form ( array $vars)
+{
+	$sForm = file_get_contents(dirname(__FILE__). "/form_template.tpl");
+
+
+	$vars["messages"] = "";
+	if (!empty($vars["message_details"]))
+	{
+		$vars["messages"] = "<h5>".$vars["message_title"] . "</h5>";
+		$vars["messages"] .= "<ul>";
+		foreach ($vars["message_details"] as $details)
+		{
+			$vars["messages"] .= "<li>$details</li>";
+		}
+		$vars["messages"] .= "</ul>";
+		unset($vars["message_details"]);
+		unset($vars["message_title"]);
+	}
+
+	foreach ($vars as $var => $value) {
+    		$sForm = str_replace("{" . $var . "}", $value ?? '', $sForm);
+	}
+	return $sForm;
+
+}
+
+function bosssecretary_get_delete_button()
+{
+	$sForm = file_get_contents(dirname(__FILE__). "/delete_button.tpl");
+	return str_replace("{delete_button_label}", "Delete Group", $sForm);
+}
+
+
+
+function bosssecretary_show_nav_users($links){
+	echo <<<OUTPUT
+
+<div class="rnav">
+	<ul>
+
+OUTPUT;
+	foreach ($links as $link){
+		$url  = $link['url'];
+		$text = $link['text'];
+
+		echo <<<OUTPUT
+		<li><a href="{$url}">{$text}</a></li>
+	
+OUTPUT;
+}
+echo <<<OUTPUT
+	</ul>
+</div>
+
+OUTPUT;
+}
+
+?>

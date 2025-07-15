@@ -191,10 +191,16 @@ function bosssecretary_get_config($engine){
 				// Redirect calls from PSTN 
 				$context = 'bosssecretary-routing';
 
-				$ext->add($context, '_.', '', new ext_noop('bosssecretary: call from PSTN, sending to ext-bosssecretary'));
+$ext->add($context, '_.', '', new ext_noop('bosssecretary: call from PSTN'));
+$ext->add($context, '_.', '', new ext_macro('user-callerid'));
+//$ext->add('from-pstn', '_.', '', new ext_gotoif('$["${DB(bosssecretary/group/member/${EXTEN})}" = "boss"]', 'ext-bosssecretary,${EXTEN},1', 'from-pstn,${EXTEN},1'));
+//$ext->add($context, '_.', '', new ext_execif('$["${DB(bosssecretary/group/member/${EXTEN})}" = "boss"]', 'Goto(ext-bosssecretary,${EXTEN},1)'));
+//$ext->add($context, '_.', '', new ext_goto('from-pstn,${EXTEN},1')); 
+				//$ext->add($context, '_.', '', new ext_noop('bosssecretary: call from PSTN, sending to ext-bosssecretary'));
 				$ext->add($context, '_.', '', new ext_goto('ext-bosssecretary,${EXTEN},1'));
-
-				$ext->add('from-pstn', '_.', '', new ext_goto('bosssecretary-routing,${EXTEN},1'));
+$ext->add('from-pstn', '_.', '', new ext_gotoif('$["${DB(bosssecretary/group/member/${EXTEN})}" = "boss"]', 'bosssecretary-routing,${EXTEN},1'));
+$ext->add('from-pstn', '_.', '', new ext_noop('BSC DB result: ${DB(bosssecretary/group/member/${EXTEN})}'));
+				//$ext->add('from-pstn', '_.', '', new ext_goto('bosssecretary-routing,${EXTEN},1'));
 			break;
 	}
 
