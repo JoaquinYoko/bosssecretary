@@ -171,7 +171,7 @@ function bosssecretary_get_config($engine){
 						$ext->add($ctx_bsc, $extension, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/'.$id_group.'/member/${CALLER})}','exit_module'));
 						$ext->add($ctx_bsc, $extension, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/'.$id_group.'/locked)}','exit_module','run_module'));
 						$ext->add($ctx_bsc, $extension, 'run_module', new ext_noop("Bosssecretary: Executing module"));
-						$ext->add($ctx_bsc, $extension, '', new ext_set("PJSIP_HEADER(add,Alert-Info)","<http://nohost>;info=alert-group;x-line-id=0")); //ext_sipaddheader("Alert-Info", "<http://nohost>\;info=alert-group\;x-line-id=0"));
+						$ext->add($ctx_bsc, $extension, '', new ext_set('PJSIP_HEADER(add,Alert-Info)','<http://nohost>;info=alert-group;x-line-id=0')); //ext_sipaddheader("Alert-Info", "<http://nohost>\;info=alert-group\;x-line-id=0"));
 						$extensions = array();
 						
 						// David
@@ -189,13 +189,12 @@ function bosssecretary_get_config($engine){
 					}
 				}
 			}
-				// Redirect calls from PSTN 
+				// Redirect calls from PSTN and internal 
 				$context = 'bosssecretary-routing';
 
 				$ext->add($context, '_.', '', new ext_noop('bosssecretary: call from PSTN'));
-				$ext->add($context, '_.', '', new ext_macro('user-callerid'));
+				//$ext->add($context, '_.', '', new ext_macro('user-callerid'));
 				$ext->add($context, '_.', '', new ext_goto('ext-bosssecretary,${EXTEN},1'));
-				//$ext->add('from-pstn', '_.', '', new ext_noop('BSC DB result: ${DB(bosssecretary/group/1/member/${EXTEN})}'));
 				$ext->add('from-pstn', '_.', '', new ext_gotoif('$["${DB(bosssecretary/group/1/member/${EXTEN})}" = "boss"]', 'bosssecretary-routing,${EXTEN},1'));
 				$ext->add('from-internal', '_.', '', new ext_gotoif('$["${DB(bosssecretary/group/1/member/${EXTEN})}" = "boss"]', 'bosssecretary-routing,${EXTEN},1'));
 
