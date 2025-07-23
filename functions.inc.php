@@ -172,7 +172,9 @@ function bosssecretary_get_config($engine){
 						$ext->add($ctx_bsc, $extension, '', new ext_gotoif('${DB_EXISTS(bosssecretary/group/'.$id_group.'/locked)}','exit_module','run_module'));
 						$ext->add($ctx_bsc, $extension, 'run_module', new ext_noop("Bosssecretary: Executing module"));
 						$ext->add($ctx_bsc, $extension, '', new ext_set('PJSIP_HEADER(add,Alert-Info)','<http://nohost>;info=alert-group;x-line-id=0')); //ext_sipaddheader("Alert-Info", "<http://nohost>\;info=alert-group\;x-line-id=0"));
+						$ext->add($ctx_bsc, $extension, '', new ext_set('OLD_FMFM', '${FMFM}'));						
 						$ext->add($ctx_bsc, $extension, '',  new ext_set('__FMFM', 'TRUE'));
+
 						$extensions = array();
 						
 						// David
@@ -184,6 +186,7 @@ function bosssecretary_get_config($engine){
 						$args = '20,${DIAL_OPTIONS},' . implode ("-", $extensions);
 						$ext->add($ctx_bsc, $extension, '', new ext_noop("Calling secretaries: " . implode("-", $extensions)));
 						$ext->add($ctx_bsc, $extension, '', new ext_macro ("dial", $args));
+						$ext->add($ctx_bsc, $extension, '', new ext_set('__FMFM', '${OLD_FMFM}'));						
 						$ext->add($ctx_bsc, $extension, 'exit_module', new ext_noop("Bosssecretary: Exit") );
 						$ext->add($ctx_bsc, $extension, '', new ext_goto(1, $extension, "ext-local") );
 						$extensions = "";
